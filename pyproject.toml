@@ -24,8 +24,8 @@ requires-python = ">=3.10"
 dynamic = ["version"]
 
 [project.urls]
-Source = "https://github.com/nicogorlo/manipulation_24"
-Tracker = "https://github.com/nicogorlo/manipulation_24/issues"
+Source = "https://github.com/nicogorlo/project_6412"
+Tracker = "https://github.com/nicogorlo/project_6412/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
