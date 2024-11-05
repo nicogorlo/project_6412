@@ -1,0 +1,45 @@
+<?xml version="1.0"?>
+<sdf version="1.7">
+
+<model name="movable_cuboid">
+  <link name="cuboid_body">
+    <inertial>
+      <mass>1.0</mass>
+      <pose>0 0 0.5 0 0 0</pose>
+      <inertia>
+        <ixx>0.000833</ixx>
+        <ixy>0</ixy>
+        <ixz>0</ixz>
+        <iyy>0.000833</iyy>
+        <iyz>0</iyz>
+        <izz>0.000833</izz>
+      </inertia>
+    </inertial>
+    <visual name="cuboid_visual">
+      <pose>0 0 0.5 0 0 0</pose>
+      <geometry>
+        <box>
+          <size>0.3 0.3 0.3</size>
+        </box>
+      </geometry>
+      <material>
+        <ambient>1 0 0 1</ambient>
+        <diffuse>1 0 0 1</diffuse>
+      </material>
+    </visual>
+    <collision name="cuboid_collision">
+      <pose>0 0 0.5 0 0 0</pose>
+      <geometry>
+        <box>
+          <size>0.3 0.3 0.3</size>
+        </box>
+      </geometry>
+      <drake:proximity_properties>
+        <drake:compliant_hydroelastic/>
+        <drake:hydroelastic_modulus>5.0e7</drake:hydroelastic_modulus>
+      </drake:proximity_properties>
+    </collision>
+  </link>
+</model>
+
+</sdf>

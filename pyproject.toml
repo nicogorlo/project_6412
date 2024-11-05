@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools"]
+
+[project]
+name = "dual_arm_manipulation"
+authors = [
+    {name = "Nitish Dashora", email = "dashora@mit.edu"},
+    {name = "Nicolas Gorlo", email = "ngorlo@mit.edu"},
+    {name = "Ben Zandonati", email = "bzando@mit.edu"}
+]
+description = "dual-arm manipulation"
+readme = "README.md"
+license = { file = "LICENSE" }
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: BSD License",
+    "Programming Language :: Python :: 3.10",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Robotics",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.10"
+dynamic = ["version"]
+
+[project.urls]
+Source = "https://github.com/nicogorlo/manipulation_24"
+Tracker = "https://github.com/nicogorlo/manipulation_24/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
