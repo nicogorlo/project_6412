@@ -1,5 +1,6 @@
 from pydrake.all import Simulator, SpatialVelocity, RotationMatrix
 from dual_arm_manipulation.environment import create_environment
+from dual_arm_manipulation.utils import save_diagram, display_diagram
 import numpy as np
 
 def main():
@@ -50,6 +51,7 @@ def main():
     meshcat_vis.StartRecording()
     # Finalize the diagram
     full_diagram = builder.Build()
+    display_diagram(full_diagram)
     simulator = Simulator(full_diagram)
     simulator.set_target_realtime_rate(1.0)
 
