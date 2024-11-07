@@ -21,3 +21,23 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
+## Todo
+
+- [x] Add point fingers
+- [ ] change point finger positions 
+- [ ] integrate point fingers to IK
+- [ ] figure out way to model contact in drake (for our slightly compliant approach)
+- [ ] GCS sets for point fingers and translation only
+
+## Structure
+
+- [ ] Environment class
+    - [ ] setup
+    - [ ] set initial state
+    - [ ] visualize in meshcat
+    - [ ] update_values (q1, q2, object pose)
+    - [ ] query -> q1, q2, object pose
+    - [ ] reset
+
+- [ ] Planner
+    - 
