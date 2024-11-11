@@ -1,3 +1,11 @@
+''' TODO:
+Run GCS to compute a collision-free trajectory in the configuration space of the two robots
+- set up the environment with two iiwa robots
+- set up the GCS problem
+- solve the GCS problem
+- visualize the trajectory
+'''
+
 from pydrake.all import (
     AddMultibodyPlantSceneGraph,
     Box,
@@ -9,6 +17,7 @@ from pydrake.all import (
     FixedOffsetFrame,
     InverseDynamicsController,
     InverseKinematics,
+    CollisionFilterDeclaration,
     JointSliders,
     Integrator,
     JacobianWrtVariable,
@@ -22,6 +31,7 @@ from pydrake.all import (
     Multiplexer,
     OsqpSolver,
     Parser,
+    GeometrySet,
     PiecewisePolynomial,
     PlanarJoint,
     PrismaticJoint,
@@ -60,15 +70,7 @@ from manipulation.meshcat_utils import AddMeshcatTriad
 import numpy as np
 import time
 
-'''TODO:
-- set up simulation with two iiwa robot arms
-- define the task-space trajectory for both robots
-- test out solving differential IK for both
-- Try adding constraints between the two robots, softly closing the kinematic chain
-- try simulating a trajectory to move a box with two robots and translate it to a new random location/pose
-'''
-
-def dual_arm_environment(cube=False):
+def dual_arm_environment(cube=True):
     meshcat = StartMeshcat()
     builder = DiagramBuilder()
     plant, scene_graph = AddMultibodyPlantSceneGraph(builder, time_step=0.001)
@@ -77,7 +79,7 @@ def dual_arm_environment(cube=False):
     directives:
     - add_model:
         name: iiwa_1
-        file: package://drake_models/iiwa_description/sdf/iiwa7_no_collision.sdf
+        file: package://drake_models/iiwa_description/sdf/iiwa7_with_box_collision.sdf
         default_joint_positions:
             iiwa_joint_1: [0]
             iiwa_joint_2: [0]
@@ -88,7 +90,7 @@ def dual_arm_environment(cube=False):
             iiwa_joint_7: [0]
     - add_model:
         name: iiwa_2
-        file: package://drake_models/iiwa_description/sdf/iiwa7_no_collision.sdf
+        file: package://drake_models/iiwa_description/sdf/iiwa7_with_box_collision.sdf
         default_joint_positions:
             iiwa_joint_1: [0]
             iiwa_joint_2: [0]
@@ -111,6 +113,7 @@ def dual_arm_environment(cube=False):
     iiwa2_model = plant.GetModelInstanceByName("iiwa_2")
     table_top_model = plant.GetModelInstanceByName("table_top")
     cuboid_model = plant.GetModelInstanceByName("movable_cuboid")
+
 
     X_iiwa1 = RigidTransform([0.7, 0.0, 0.0])
     X_iiwa2 = RigidTransform([-0.7, 0.0, 0.0])
@@ -140,7 +143,6 @@ def dual_arm_environment(cube=False):
 
     return builder, plant, scene_graph, meshcat
 
-
 def task_space_trajectory(radius = 0.2, p0 = [0., 0., 0.6], rpy = [np.pi/4, 0., 0.], N=100):
 
     # Create a RollPitchYaw object
@@ -154,13 +156,13 @@ def task_space_trajectory(radius = 0.2, p0 = [0., 0., 0.6], rpy = [np.pi/4, 0., 
     X_WCenter = RigidTransform(R0, p0)
 
     # Create a circular trajectory
-    thetas = np.linspace(0, 2 * np.pi, N)
+    thetas = np.linspace(-np.pi/2,  np.pi/2, N)
 
     key_frame_poses_in_world = []
     for theta in thetas:
         R = RotationMatrix.MakeZRotation(theta) 
         pf = np.array([radius, 0., 0])
-        X_CC = RigidTransform(R@pf)
+        X_CC = RigidTransform(R, R@pf)
         X_WCC = X_WCenter.multiply(X_CC)
         key_frame_poses_in_world.append(X_WCC)
 
@@ -172,13 +174,15 @@ def visualise_trajectory(visualizer, poses):
             visualizer, "box_traj/" + "frame_{}".format(i), length=0.1, radius=0.006, X_PT=pose
         )
 
-def solve_ik_for_pose(plant, desired_pose):
+def sample_ik(plant, plant_context, desired_pose):
     iiwa1_model = plant.GetModelInstanceByName("iiwa_1")
     iiwa2_model = plant.GetModelInstanceByName("iiwa_2")
 
+    
+
     # Define the transform between the object pose and the desired gripper pose:
-    p_CG1 = [0.15, 0, 0]
-    p_CG2 = [-0.15, 0, 0]
+    p_CG1 = [0.2, 0, 0]
+    p_CG2 = [-0.2, 0, 0]
     R_CG1 = RollPitchYaw(0., -np.pi/2, 0).ToRotationMatrix()
     R_CG2 = RollPitchYaw(0, np.pi/2, 0.).ToRotationMatrix()
 
@@ -189,9 +193,10 @@ def solve_ik_for_pose(plant, desired_pose):
 
     # solve for IK for both:
     # 1. Inverse Kinematics for iiwa_1
-    ik_iiwa = InverseKinematics(plant)
+    ik_iiwa = InverseKinematics(plant, plant_context)
     end_effector_frame_iiwa1 = plant.GetFrameByName("iiwa_link_7", iiwa1_model)  # Adjust to the correct end-effector frame
     end_effector_frame_iiwa2 = plant.GetFrameByName("iiwa_link_7", iiwa2_model)  # Adjust to the correct end-effector frame
+    cube_frame = plant.GetFrameByName("cuboid_body", plant.GetModelInstanceByName("movable_cuboid"))
 
     # Add position and orientation constraints for iiwa_1
     ik_iiwa.AddPositionConstraint(
@@ -223,9 +228,28 @@ def solve_ik_for_pose(plant, desired_pose):
         theta_bound=0.005
     )
 
+    # Add a constraint to ensure dynamic feasbility with the cube
+    ik_iiwa.AddPositionConstraint(
+        frameB=cube_frame,
+        p_BQ=np.array([0, 0, 0]),
+        frameA=plant.world_frame(),
+        p_AQ_lower=desired_pose.translation() - 0.005,
+        p_AQ_upper=desired_pose.translation() + 0.005
+    )
+    ik_iiwa.AddOrientationConstraint(
+        frameAbar=plant.world_frame(),
+        R_AbarA=desired_pose.rotation(),
+        frameBbar=cube_frame,
+        R_BbarB=RigidTransform().rotation(),
+        theta_bound=0.005
+    )
+
+    # add collision constraint:
+    ik_iiwa.AddMinimumDistanceLowerBoundConstraint(0.001, 0.01)
+
     result_iiwa = Solve(ik_iiwa.prog())
     if result_iiwa.is_success():
-        q_sol_iiwa = result_iiwa.GetSolution(ik_iiwa.q()[0:14])
+        q_sol_iiwa = result_iiwa.GetSolution(ik_iiwa.q())
         print("Solution found for iiwa:", q_sol_iiwa)
     else:
         print("No solution found for iiwa.")
@@ -233,9 +257,26 @@ def solve_ik_for_pose(plant, desired_pose):
 
     return q_sol_iiwa
 
+def get_geometry_set(plant, name):
+    model_instance = plant.GetModelInstanceByName(name)
+    # Initialize an empty list to collect geometry IDs
+    frame_ids = []
+
+    # Loop through each body in the model instance
+    for body in plant.GetBodyIndices(model_instance):
+        body = plant.get_body(body)  # Retrieve the body object
+        # Get the frame ID associated with the body
+        frame_id = plant.GetBodyFrameIdOrThrow(body.index())
+        # Add the geometry IDs to the list
+        frame_ids.append(frame_id)
+
+    # Optionally, create a GeometrySet with these IDs
+    frame_set = GeometrySet(frame_ids)
+    return frame_set
+
+
 def main():
-   # Initialising Simulation:
-    builder, plant, scene_graph, visualizer = dual_arm_environment(cube=False)
+    builder, plant, scene_graph, visualizer = dual_arm_environment(cube=True)
 
     diagram = builder.Build()
     plant.Finalize()
@@ -244,32 +285,61 @@ def main():
     context = simulator.get_mutable_context()
     plant_context = plant.GetMyMutableContextFromRoot(context)
 
-    # create the test circular pose trajectory:
-    poses = task_space_trajectory(N=100)
+    diagram_context = diagram.CreateDefaultContext()
+    scene_graph_context = scene_graph.GetMyMutableContextFromRoot(diagram_context)
 
-    # Visualise the trajectory:
-    visualise_trajectory(visualizer, poses)
+    iiwa1_set = get_geometry_set(plant, "iiwa_1")
+    iiwa2_set = get_geometry_set(plant, "iiwa_2")
+    cuboid_set = get_geometry_set(plant, "movable_cuboid")
+
+
+    # Get model instances
+    
+    box_exclude_declaration1 = CollisionFilterDeclaration().ExcludeBetween(
+        iiwa1_set, cuboid_set
+    )
+    box_exclude_declaration2 = CollisionFilterDeclaration().ExcludeBetween(
+        iiwa2_set, cuboid_set
+    )
+    scene_graph.collision_filter_manager().ApplyTransient(
+        box_exclude_declaration1
+    )
+    scene_graph.collision_filter_manager().ApplyTransient(
+        box_exclude_declaration2
+    )
+
+    plant_sim_context = plant.GetMyMutableContextFromRoot(diagram_context)
+    
+    
+    # Define desired end-effector poses
+    tp_traj = task_space_trajectory(radius=0, p0=[0,0, 0.4], rpy=[0, 0, 0], N=20)
+
+    # visualise task-space trajectory
+    visualise_trajectory(visualizer, tp_traj)
 
     visualizer.StartRecording()
     # Now solve for the IK for each pose in the trajectory:
     q_space_trajectory = []
-    for i, pose in enumerate(poses):
-        solution = solve_ik_for_pose(plant, pose)
+    print(len(q_space_trajectory))
+    t = 0
+    valid_solutions = []
+    for i, pose in enumerate(tp_traj):
+        solution = sample_ik(plant, plant_sim_context, pose)
         if solution is not None:
+            valid_solutions.append(solution)
             q_space_trajectory.append(solution)
-            plant.SetPositions(plant_context, plant.GetModelInstanceByName("iiwa_1"), solution[0:7])
-            plant.SetPositions(plant_context, plant.GetModelInstanceByName("iiwa_2"), solution[7:14])
-            simulator.AdvanceTo(0.01*i)
+            # plant.SetPositions(plant_context, plant.GetModelInstanceByName("iiwa_1"), solution[0:7])
+            # plant.SetPositions(plant_context, plant.GetModelInstanceByName("iiwa_2"), solution[7:14])
+            plant.SetPositions(plant_context, solution)
+            simulator.AdvanceTo(0.1*(t+1))
+            t += 1
         else:
             print("No solution found for the pose.")
-            
 
     # neccessary for visualisation:
     visualizer.PublishRecording()
     while True:
         pass
-
-
 
 if __name__ == "__main__":
     main()
