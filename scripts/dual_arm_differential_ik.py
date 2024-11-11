@@ -13,6 +13,9 @@ from pydrake.all import (
     ContactVisualizer,
     ContactVisualizerParams,
     DiagramBuilder,
+    Diagram,
+    Context,
+    RpyFloatingJoint,
     DiscreteContactApproximation,
     FixedOffsetFrame,
     InverseDynamicsController,
@@ -23,10 +26,16 @@ from pydrake.all import (
     JacobianWrtVariable,
     LeafSystem,
     LogVectorOutput,
+    AffineBall,
     MathematicalProgram,
     MeshcatVisualizer,
+    HPolyhedron,
+    Hyperellipsoid,
+    IrisInConfigurationSpace,
+    IrisOptions,
     MeshcatVisualizerParams,
     MultibodyPlant,
+    UniversalJoint,
     MultibodyPositionToGeometryPose,
     Multiplexer,
     OsqpSolver,
@@ -124,6 +133,16 @@ def dual_arm_environment(cube=True):
 
     table_top_body = plant.GetBodyByName("table_top_body", table_top_model)
     cuboid_body = plant.GetBodyByName("cuboid_body", cuboid_model)
+    # Attach an RpyFloatingJoint to the cube
+    cube_joint = RpyFloatingJoint(
+        name="cube_joint",
+        frame_on_parent=plant.world_frame(),
+        frame_on_child=cuboid_body.body_frame()
+    )
+    print(cube_joint.num_positions())
+    # cube_joint.set_position_limits([-1., -1.,-1., -np.pi, -np.pi, -np.pi], [1., 1., 1., np.pi, np.pi, np.pi])
+    # plant.AddJoint(cube_joint)
+    
     if not cube:
         plant.WeldFrames(
             plant.world_frame(),
@@ -143,7 +162,7 @@ def dual_arm_environment(cube=True):
 
     return builder, plant, scene_graph, meshcat
 
-def task_space_trajectory(radius = 0.2, p0 = [0., 0., 0.6], rpy = [np.pi/4, 0., 0.], N=100):
+def task_space_trajectory(radius = 0.1, p0 = [0., 0., 0.6], rpy = [np.pi/4, 0., 0.], N=100):
 
     # Create a RollPitchYaw object
     rpy = RollPitchYaw(rpy[0], rpy[1], rpy[2])
@@ -156,12 +175,12 @@ def task_space_trajectory(radius = 0.2, p0 = [0., 0., 0.6], rpy = [np.pi/4, 0., 
     X_WCenter = RigidTransform(R0, p0)
 
     # Create a circular trajectory
-    thetas = np.linspace(-np.pi/2,  np.pi/2, N)
+    thetas = np.linspace(-np.pi,  np.pi, N)
 
     key_frame_poses_in_world = []
     for theta in thetas:
-        R = RotationMatrix.MakeZRotation(theta) 
-        pf = np.array([radius, 0., 0])
+        R = RotationMatrix.MakeXRotation(theta) 
+        pf = np.array([0., 0., radius])
         X_CC = RigidTransform(R, R@pf)
         X_WCC = X_WCenter.multiply(X_CC)
         key_frame_poses_in_world.append(X_WCC)
@@ -181,8 +200,8 @@ def sample_ik(plant, plant_context, desired_pose, initial_guess=None):
     
 
     # Define the transform between the object pose and the desired gripper pose:
-    p_CG1 = [0.2, 0, 0]
-    p_CG2 = [-0.2, 0, 0]
+    p_CG1 = [0.22, 0, 0]
+    p_CG2 = [-0.22, 0, 0]
     R_CG1 = RollPitchYaw(0., -np.pi/2, 0).ToRotationMatrix()
     R_CG2 = RollPitchYaw(0, np.pi/2, 0.).ToRotationMatrix()
 
@@ -249,7 +268,7 @@ def sample_ik(plant, plant_context, desired_pose, initial_guess=None):
 
     # add initial guess:
     if initial_guess is not None:
-        ik_iiwa.prog().AddQuadraticErrorCost(0.01*np.identity(len(ik_iiwa.q())), initial_guess, ik_iiwa.q())
+        ik_iiwa.prog().AddQuadraticErrorCost(0.1*np.identity(len(ik_iiwa.q())), initial_guess, ik_iiwa.q())
         ik_iiwa.prog().SetInitialGuess(ik_iiwa.q(), initial_guess)
 
     result_iiwa = Solve(ik_iiwa.prog())
@@ -282,6 +301,94 @@ def get_geometry_set(plant, name):
     frame_set = GeometrySet(frame_ids)
     return frame_set
 
+def AnimateIris(
+    root_diagram: Diagram,
+    root_context: Context,
+    plant: MultibodyPlant,
+    region: HPolyhedron,
+    speed: float,
+    meshcat: MeshcatVisualizer,
+):
+    """
+    A simple hit-and-run-style idea for visualizing the IRIS regions:
+    1. Start at the center. Pick a random direction and run to the boundary.
+    2. Pick a new random direction; project it onto the current boundary, and run along it. Repeat
+    """
+
+    plant_context = plant.GetMyContextFromRoot(root_context)
+
+    q = region.ChebyshevCenter()
+    plant.SetPositions(plant_context, q)
+    root_diagram.ForcedPublish(root_context)
+
+    print("Press the 'Stop Animation' button in Meshcat to continue.")
+    meshcat.AddButton("Stop Animation", "Escape")
+
+    rng = np.random.default_rng()
+    nq = plant.num_positions()
+    prog = MathematicalProgram()
+    qvar = prog.NewContinuousVariables(nq, "q")
+    prog.AddLinearConstraint(region.A(), 0 * region.b() - np.inf, region.b(), qvar)
+    cost = prog.AddLinearCost(np.ones((nq, 1)), qvar)
+
+    while meshcat.GetButtonClicks("Stop Animation") < 1:
+        direction = rng.standard_normal(nq)
+        cost.evaluator().UpdateCoefficients(direction)
+
+        result = Solve(prog)
+        assert result.is_success()
+
+        q_next = result.GetSolution(qvar)
+
+        # Animate between q and q_next (at speed):
+        # TODO: normalize step size to speed... e.g. something like
+        # 20 * np.linalg.norm(q_next - q) / speed)
+        for t in np.append(np.arange(0, 1, 0.05), 1):
+            qs = t * q_next + (1 - t) * q
+            plant.SetPositions(plant_context, qs)
+            root_diagram.ForcedPublish(root_context)
+            time.sleep(0.05)
+
+        q = q_next
+
+    meshcat.DeleteButton("Stop Animation")
+
+def AnimateBall(root_diagram: Diagram,
+    root_context: Context,
+    plant: MultibodyPlant,
+    E: HPolyhedron,
+    speed: float,
+    meshcat: MeshcatVisualizer):
+    
+    plant_context = plant.GetMyContextFromRoot(root_context)
+    q = E.center()
+    plant.SetPositions(plant_context, plant.GetModelInstanceByName("movable_cuboid"),  q)
+    root_diagram.ForcedPublish(root_context)
+
+    print("Press the 'Stop Animation' button in Meshcat to continue.")
+    meshcat.AddButton("Stop Animation", "Escape")
+
+    while meshcat.GetButtonClicks("Stop Animation") < 1:
+        
+        # compute the next point by sammpling witin the affine ball:
+        u = np.random.randn(7)
+        if np.linalg.norm(u) > 1:
+            u = u / np.linalg.norm(u)
+        q_next = E.center() + E.B() @ u
+
+        # Animate between q and q_next (at speed):
+        # TODO: normalize step size to speed... e.g. something like
+        # 20 * np.linalg.norm(q_next - q) / speed)
+        for t in np.append(np.arange(0, 1, 0.05), 1):
+            qs = t * q_next + (1 - t) * q
+            plant.SetPositions(plant_context, plant.GetModelInstanceByName("movable_cuboid"),  qs)
+            root_diagram.ForcedPublish(root_context)
+            time.sleep(0.05)
+
+        q = q_next
+
+    meshcat.DeleteButton("Stop Animation")
+
 
 def main():
     builder, plant, scene_graph, visualizer = dual_arm_environment(cube=True)
@@ -300,9 +407,12 @@ def main():
     iiwa2_set = get_geometry_set(plant, "iiwa_2")
     cuboid_set = get_geometry_set(plant, "movable_cuboid")
 
+    num_positions = plant.num_positions(plant.GetModelInstanceByName("movable_cuboid"))
+    print(f"Number of positions: {num_positions}")
+
 
     # Define desired end-effector poses
-    tp_traj = task_space_trajectory(radius=0., p0=[0,0, 0.3], rpy=[0, np.pi/6, 0], N=100)
+    tp_traj = task_space_trajectory(radius=0.2, p0=[0,0, 0.2], rpy=[0, 0., 0], N=100)
 
     # visualise task-space trajectory
     visualise_trajectory(visualizer, tp_traj)
@@ -331,6 +441,22 @@ def main():
             t += 1
         else:
             print("No solution found for the pose.")
+
+    # MinimumVolumeCircumscribedEllipsoid
+    valid_solutions = np.array(valid_solutions).T
+    
+    task_space_valid_solutions = valid_solutions[14:, :]
+    print(task_space_valid_solutions.shape)
+    E = AffineBall.MinimumVolumeCircumscribedEllipsoid(task_space_valid_solutions)
+
+    print(E.center())
+    print(E.B())   
+    # Assuming `model_instance` is a valid model instance for the cube or robot.
+    plant.SetPositions(plant_context, plant.GetModelInstanceByName("movable_cuboid"),  E.center())
+    diagram.ForcedPublish(context)
+    # plant.SetPositions(plant_context, plant.GetModelInstanceByName("movable_cuboid"), E.center())
+    AnimateBall(diagram, context, plant, E, 0.1, visualizer)
+
 
     # neccessary for visualisation:
     visualizer.PublishRecording()
