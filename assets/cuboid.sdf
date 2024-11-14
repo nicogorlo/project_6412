@@ -5,7 +5,7 @@
   <link name="cuboid_body">
     <inertial>
       <mass>1.0</mass>
-      <pose>0 0 0.5 0 0 0</pose>
+      <pose>0 0 0 0 0 0</pose>
       <inertia>
         <ixx>0.000833</ixx>
         <ixy>0</ixy>
@@ -16,7 +16,7 @@
       </inertia>
     </inertial>
     <visual name="cuboid_visual">
-      <pose>0 0 0.5 0 0 0</pose>
+      <pose>0 0 0 0 0 0</pose>
       <geometry>
         <box>
           <size>0.3 0.3 0.3</size>
@@ -28,7 +28,7 @@
       </material>
     </visual>
     <collision name="cuboid_collision">
-      <pose>0 0 0.5 0 0 0</pose>
+      <pose>0 0 0 0 0 0</pose>
       <geometry>
         <box>
           <size>0.3 0.3 0.3</size>
