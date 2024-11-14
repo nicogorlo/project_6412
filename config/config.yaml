@@ -1,0 +1,16 @@
+eval:
+  goal_pose: [1, 0, 0, 0, 0.0, 0, 0.6]
+
+planner:
+  visualize: true
+
+  contact_modes: 
+    X_POS: [[0.22, 0, 0], [-0.22, 0, 0]]
+    X_NEG: [[-0.22, 0, 0], [0.22, 0, 0]]
+    Y_POS: [[0, 0.22, 0], [0, -0.22, 0]]
+    Y_NEG: [[0, -0.22, 0], [0, 0.22, 0]]
+    Z_POS: [[0, 0, 0.22], [0, 0, -0.22]]
+    Z_NEG: [[0, 0, -0.22], [0, 0, 0.22]]
+
+  tabletop_configurations:
+    n_rotations: 8 # Number of rotations per side. n_samples = n_rotations * 6
