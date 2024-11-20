@@ -86,6 +86,7 @@ import time
 
 from dual_arm_manipulation import ROOT_DIR
 from dual_arm_manipulation.environment import dual_arm_environment
+from dual_arm_manipulation.planner import MotionPrimitive, MotionPrimitives
 from dual_arm_manipulation.utils import interpolate_6dof_poses, get_free_faces, pose_vec_to_transform, rotation_matrix_from_vectors
 import yaml
 
@@ -97,7 +98,6 @@ def task_space_trajectory(radius = 0.1, p0 = [0., 0., 0.6], rpy = [np.pi/4, 0., 
 
     # Get the rotation matrix
     R0 = rpy.ToRotationMatrix()
-
 
     # Get the centre pose
     X_WCenter = RigidTransform(R0, p0)
@@ -121,9 +121,41 @@ def visualise_trajectory(visualizer, poses):
             visualizer, "box_traj/" + "frame_{}".format(i), length=0.1, radius=0.006, X_PT=pose
         )
 
-def sample_ik(plant, plant_context, desired_pose, contact_mode = [[0.22, 0, 0], [-0.22, 0, 0]], initial_guess=None):
+def sample_ik(plant, plant_context, desired_pose, contact_mode = [[0.22, 0, 0], [-0.22, 0, 0]], initial_guess=None, visualizer=None):
+
     iiwa1_model = plant.GetModelInstanceByName("iiwa_1")
     iiwa2_model = plant.GetModelInstanceByName("iiwa_2")
+
+    # contact_iiwa1 = plant.GetModelInstanceByName("contact_body_iiwa1")
+    # contact_iiwa2 = plant.GetModelInstanceByName("contact_body_iiwa2")
+
+    constrained_axis = None
+    cube_contact_frame_neg = None
+    cube_contact_frame_pos = None
+
+    if contact_mode[0][0] > 0:
+        constrained_axis = 0
+        theta_bounds = np.array([0.005, np.pi/4+ 0.1, np.pi/4+ 0.1])
+        cube_contact_frame_pos = plant.GetFrameByName("X_pos_contact", plant.GetModelInstanceByName("movable_cuboid"))
+        cube_contact_frame_neg = plant.GetFrameByName("X_neg_contact", plant.GetModelInstanceByName("movable_cuboid"))
+    elif contact_mode[0][1] > 0:
+        constrained_axis = 1
+        theta_bounds = np.array([np.pi/4+ 0.1, 0.005, np.pi/4+ 0.1])
+        cube_contact_frame_pos = plant.GetFrameByName("Y_pos_contact", plant.GetModelInstanceByName("movable_cuboid"))
+        cube_contact_frame_neg = plant.GetFrameByName("Y_neg_contact", plant.GetModelInstanceByName("movable_cuboid"))
+    else:
+        constrained_axis = 2
+        theta_bounds = np.array([np.pi/4+ 0.1, np.pi/4+ 0.1, 0.005])
+        cube_contact_frame_pos = plant.GetFrameByName("Z_pos_contact", plant.GetModelInstanceByName("movable_cuboid"))
+        cube_contact_frame_neg = plant.GetFrameByName("Z_neg_contact", plant.GetModelInstanceByName("movable_cuboid"))
+
+    if visualizer is not None:
+        AddMeshcatTriad(
+            visualizer, "contact_mode/" + "axis_{}".format(constrained_axis), length=0.1, radius=0.006, X_PT=cube_contact_frame_pos.CalcPoseInWorld(plant_context)
+        )
+        AddMeshcatTriad(
+            visualizer, "contact_mode/" + "axis_{}".format(constrained_axis), length=0.1, radius=0.006, X_PT=cube_contact_frame_neg.CalcPoseInWorld(plant_context)
+        )
 
     # Define the transform between the object pose and the desired gripper pose:
     p_CG1 = contact_mode[0]
@@ -139,17 +171,44 @@ def sample_ik(plant, plant_context, desired_pose, contact_mode = [[0.22, 0, 0], 
     # solve for IK for both:
     # 1. Inverse Kinematics for iiwa_1
     ik_iiwa = InverseKinematics(plant, plant_context)
-    end_effector_frame_iiwa1 = plant.GetFrameByName("iiwa_link_7", iiwa1_model)  # Adjust to the correct end-effector frame
-    end_effector_frame_iiwa2 = plant.GetFrameByName("iiwa_link_7", iiwa2_model)  # Adjust to the correct end-effector frame
+
+    # joint limits: (currently only for the universal joints to avoid collision)
+    # Retrieve the positions of the Universal Joint angles
+    theta1_iiwa1 = ik_iiwa.q()[plant.GetJointByName("universal_joint_iiwa1").position_start()]
+    theta2_iiwa1 = ik_iiwa.q()[plant.GetJointByName("universal_joint_iiwa1").position_start() + 1]
+
+    # constraints on the angles
+    ik_iiwa.prog().AddBoundingBoxConstraint(-np.pi/5, np.pi/5, theta1_iiwa1)
+    ik_iiwa.prog().AddBoundingBoxConstraint(-np.pi/5, np.pi/5, theta2_iiwa1)
+
+    # iiwa_2
+    theta1_iiwa2 = ik_iiwa.q()[plant.GetJointByName("universal_joint_iiwa2").position_start()]
+    theta2_iiwa2 = ik_iiwa.q()[plant.GetJointByName("universal_joint_iiwa2").position_start() + 1]
+
+    ik_iiwa.prog().AddBoundingBoxConstraint(-np.pi/5, np.pi/5, theta1_iiwa2)
+    ik_iiwa.prog().AddBoundingBoxConstraint(-np.pi/5, np.pi/5, theta2_iiwa2)
+
+
+
+    end_effector_frame_iiwa1 = plant.GetFrameByName("contact_body_iiwa1", iiwa1_model)
+    end_effector_frame_iiwa2 = plant.GetFrameByName("contact_body_iiwa2", iiwa2_model)
     cube_frame = plant.GetFrameByName("cuboid_body", plant.GetModelInstanceByName("movable_cuboid"))
 
+    if visualizer is not None:
+        AddMeshcatTriad(
+            visualizer, "iiwa1/" + "contact_body_iiwa1", length=0.1, radius=0.003, X_PT=end_effector_frame_iiwa1.CalcPoseInWorld(plant_context)
+        )
+
+        AddMeshcatTriad(
+            visualizer, "iiwa2/" + "contact_body_iiwa2", length=0.1, radius=0.003, X_PT=end_effector_frame_iiwa2.CalcPoseInWorld(plant_context)
+        )
     # Add position and orientation constraints for iiwa_1
     ik_iiwa.AddPositionConstraint(
+        frameA=cube_contact_frame_pos,
         frameB=end_effector_frame_iiwa1,
-        p_BQ=np.array([0, 0, 0]),
-        frameA=plant.world_frame(),
-        p_AQ_lower=X_WG1.translation() - 0.005,
-        p_AQ_upper=X_WG1.translation() + 0.005
+        p_BQ=np.zeros(3),
+        p_AQ_lower=-0.005 * np.ones(3),
+        p_AQ_upper= 0.005 * np.ones(3)
     )
 
     ik_iiwa.AddOrientationConstraint(
@@ -157,21 +216,24 @@ def sample_ik(plant, plant_context, desired_pose, contact_mode = [[0.22, 0, 0], 
         R_AbarA=X_WG1.rotation(),
         frameBbar=end_effector_frame_iiwa1,
         R_BbarB=RigidTransform().rotation(),
-        theta_bound=0.005
+        theta_bound=0.05
     )
+
+    # Add position and orientation constraints for iiwa_2
     ik_iiwa.AddPositionConstraint(
+        frameA=cube_contact_frame_neg,
         frameB=end_effector_frame_iiwa2,
-        p_BQ=np.array([0, 0, 0]),
-        frameA=plant.world_frame(),
-        p_AQ_lower=X_WG2.translation() - 0.005,
-        p_AQ_upper=X_WG2.translation() + 0.005
+        p_BQ=np.zeros(3),
+        p_AQ_lower=-0.005 * np.ones(3),
+        p_AQ_upper= 0.005 * np.ones(3)
     )
+
     ik_iiwa.AddOrientationConstraint(
         frameAbar=plant.world_frame(),
         R_AbarA=X_WG2.rotation(),
         frameBbar=end_effector_frame_iiwa2,
         R_BbarB=RigidTransform().rotation(),
-        theta_bound=0.005
+        theta_bound=0.05
     )
 
     # Add a constraint to ensure dynamic feasbility with the cube
@@ -315,15 +377,15 @@ def AnimateBall(root_diagram: Diagram,
             pose = pose_vec_to_transform(qs)
 
             if len(solutions) != 0:
-                solution = sample_ik(plant, plant_context, pose, initial_guess=solutions[-1])
+                solution = sample_ik(plant, plant_context, pose, initial_guess=solutions[-1], visualizer=meshcat)
             else:
-                solution = sample_ik(plant, plant_context, pose)
+                solution = sample_ik(plant, plant_context, pose, visualizer=meshcat)
             
             if solution is None:
                 continue
             
             plant.SetPositions(plant_context, solution)
-            # plant.SetPositions(plant_context, plant.GetModelInstanceByName("movable_cuboid"),  qs)
+            plant.SetPositions(plant_context, plant.GetModelInstanceByName("movable_cuboid"),  qs)
             root_diagram.ForcedPublish(root_context)
             time.sleep(0.05)
 
@@ -332,7 +394,14 @@ def AnimateBall(root_diagram: Diagram,
     meshcat.DeleteButton("Stop Animation")
 
 
-def get_convex_set(tp_traj, plant, plant_context, simulator, t):
+def ik_trajectory(root_diagram: Diagram,
+                  root_context: Context,
+                  tp_traj, 
+                  plant, 
+                  plant_context, 
+                  simulator, 
+                  visualizer, 
+                  t):
     # Now solve for the IK for each pose in the trajectory:
     q_space_trajectory = []
     print(len(q_space_trajectory))
@@ -340,9 +409,9 @@ def get_convex_set(tp_traj, plant, plant_context, simulator, t):
     valid_solutions = []
     for i, pose in enumerate(tp_traj):
         if len(valid_solutions) != 0:
-            solution = sample_ik(plant, plant_context, pose, initial_guess=valid_solutions[-1])
+            solution = sample_ik(plant, plant_context, pose, initial_guess=valid_solutions[-1], visualizer=visualizer)
         else:
-            solution = sample_ik(plant, plant_context, pose)
+            solution = sample_ik(plant, plant_context, pose, visualizer=visualizer)
         if solution is not None:
             valid_solutions.append(solution)
             q_space_trajectory.append(solution)
@@ -353,9 +422,12 @@ def get_convex_set(tp_traj, plant, plant_context, simulator, t):
                 simulator.AdvanceTo(0.01*(t+1))
             except:
                 print("Simulation failed at t = ", t)
-            t += 1
         else:
             print("No solution found for the pose.")
+        
+        time.sleep(0.05)
+        t += 1
+        root_diagram.ForcedPublish(root_context)
 
     # MinimumVolumeCircumscribedEllipsoid
     valid_solutions = np.array(valid_solutions).T
@@ -363,11 +435,6 @@ def get_convex_set(tp_traj, plant, plant_context, simulator, t):
     task_space_valid_solutions = valid_solutions[14:, :]
     print(task_space_valid_solutions.shape)
     E = AffineBall.MinimumVolumeCircumscribedEllipsoid(task_space_valid_solutions)
-
-    print(E.center())
-    print(E.B())
-    # Assuming `model_instance` is a valid model instance for the cube or robot.
-    plant.SetPositions(plant_context, plant.GetModelInstanceByName("movable_cuboid"),  E.center())
 
     return E
 
@@ -383,7 +450,7 @@ def get_goal_conditioned_tabletop_configurations(goal_pose, contact_modes, n_tab
 
     for contact_mode_name, contact_mode in contact_modes.items():
         # determine if IK solution exists for contact mode in goal configuration
-        solution = sample_ik(plant, plant_context, goal_pose, contact_mode=contact_mode)
+        solution = sample_ik(plant, plant_context, goal_pose, contact_mode=contact_mode, visualizer=visualizer)
 
         tabletop_sample_poses = []
         
@@ -407,7 +474,7 @@ def get_goal_conditioned_tabletop_configurations(goal_pose, contact_modes, n_tab
                         visualizer, "goal_pose", length=0.1, radius=0.006, X_PT=tabletop_sample_pose
                     )
                     
-                    sample_solution = sample_ik(plant, plant_context, tabletop_sample_pose, contact_mode=contact_mode)
+                    sample_solution = sample_ik(plant, plant_context, tabletop_sample_pose, contact_mode=contact_mode, visualizer=visualizer)
 
                     if sample_solution is None:
                         continue
@@ -440,6 +507,13 @@ def main():
     diagram = builder.Build()
     plant.Finalize()
 
+    # if cfg["setup"]["fixed_cube"]:
+    #     plant.WeldFrames(
+    #         plant.GetFrameByName("iiwa_link_0", plant.GetModelInstanceByName("iiwa_1")),
+    #         plant.GetFrameByName("cuboid_body", plant.GetModelInstanceByName("movable_cuboid")),
+    #         RigidTransform([0, 0, -0.05])
+    #     )
+
     simulator = Simulator(diagram)
     context = simulator.get_mutable_context()
     plant_context = plant.GetMyMutableContextFromRoot(context)
@@ -460,16 +534,28 @@ def main():
     sample_final_contact_modes = get_goal_conditioned_tabletop_configurations(goal_pose, contact_modes, n_rotations, plant, plant_context, simulator, scene_graph, diagram, visualizer, t)
 
     # Define desired end-effector poses
-    tp_traj = task_space_trajectory(radius=0.2, p0=[0,0, 0.2], rpy=[0, 0., 0], N=100)
+    motion_primitives = MotionPrimitives(RigidTransform(RotationMatrix(), np.array([0.0, 0.0, 0.2])), 'X_POS', cfg)
 
-    # visualise task-space trajectory
-    visualise_trajectory(visualizer, tp_traj)
+    for primitive in motion_primitives.primitives:
 
-    visualizer.StartRecording()
-    E = get_convex_set(tp_traj, plant, plant_context, simulator, t)
-    diagram.ForcedPublish(context)
-    # plant.SetPositions(plant_context, plant.GetModelInstanceByName("movable_cuboid"), E.center())
-    AnimateBall(diagram, context, plant, E, 0.1, visualizer)
+        tp_traj =  primitive.trajectory
+
+        # visualise task-space trajectory
+        visualise_trajectory(visualizer, tp_traj)
+
+        visualizer.StartRecording()
+
+        E = ik_trajectory(diagram, context, tp_traj, plant, plant_context, simulator, visualizer, t)
+        diagram.ForcedPublish(context)
+
+        print("Press the 'Continue Animation' button in Meshcat to continue to the next motion primitive.")
+        visualizer.AddButton("Continue Animation", "Escape")
+
+        while visualizer.GetButtonClicks("Continue Animation") < 1:
+            pass
+        visualizer.DeleteButton("Continue Animation")
+
+        # AnimateBall(diagram, context, plant, E, 0.1, visualizer)
 
 
     # neccessary for visualisation:

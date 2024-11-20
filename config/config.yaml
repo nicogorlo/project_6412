@@ -1,16 +1,27 @@
 eval:
-  goal_pose: [1, 0, 0, 0, 0.0, 0, 0.6]
+  goal_pose: [1, 0, 0, 0, 0.0, 0.2, 0.6]
+
+setup:
+  fixed_cube: true
 
 planner:
   visualize: true
 
   contact_modes: 
-    X_POS: [[0.22, 0, 0], [-0.22, 0, 0]]
-    X_NEG: [[-0.22, 0, 0], [0.22, 0, 0]]
-    Y_POS: [[0, 0.22, 0], [0, -0.22, 0]]
-    Y_NEG: [[0, -0.22, 0], [0, 0.22, 0]]
-    Z_POS: [[0, 0, 0.22], [0, 0, -0.22]]
-    Z_NEG: [[0, 0, -0.22], [0, 0, 0.22]]
+    X_POS: [[0.15, 0, 0], [-0.15, 0, 0]]
+    X_NEG: [[-0.15, 0, 0], [0.15, 0, 0]]
+    Y_POS: [[0, 0.15, 0], [0, -0.15, 0]]
+    Y_NEG: [[0, -0.15, 0], [0, 0.15, 0]]
+    Z_POS: [[0, 0, 0.15], [0, 0, -0.15]]
+    Z_NEG: [[0, 0, -0.15], [0, 0, 0.15]]
 
   tabletop_configurations:
     n_rotations: 8 # Number of rotations per side. n_samples = n_rotations * 6
+
+  primitives: ['YAW_90_cw', 'YAW_90_ccw', 'ROLL_90_cw', 'ROLL_90_ccw', 'TO_GOAL'] # ['YAW_90_cw', 'YAW_90_ccw', 'ROLL_90_cw', 'ROLL_90_ccw', 'PITCH_90_cw', 'PITCH_90_ccw', 'TO_GOAL']
+
+  lift_height: 0.4
+  num_steps: 50
+  num_steps_lift: 50
+  num_steps_rotate: 50
+  num_steps_lower: 50

@@ -41,6 +41,7 @@ from pydrake.all import (
     StartMeshcat,
     TrajectorySource,
     UnitInertia,    
+    UniversalJoint
 )
 from manipulation.station import LoadScenario, MakeHardwareStation
 from dual_arm_manipulation import ROOT_DIR
@@ -137,6 +138,8 @@ def dual_arm_environment(cube=True):
         name: movable_cuboid
         file: "file://{ROOT_DIR}/assets/cuboid.sdf"
     """
+
+
     directives = LoadModelDirectivesFromString(model_directive)
     ProcessModelDirectives(directives, plant, parser)
 
@@ -149,7 +152,73 @@ def dual_arm_environment(cube=True):
     X_iiwa1 = RigidTransform([0.7, 0.0, 0.0])
     X_iiwa2 = RigidTransform([-0.7, 0.0, 0.0])
 
+    axis_first = [1, 0, 0]  # X-axis
+    axis_second = [0, 1, 0]  # Y-axis
+
     # Weld the iiwa robots to the world at the specified positions
+    contact_body_iiwa1 = plant.AddRigidBody(
+        name="contact_body_iiwa1",
+        M_BBo_B=SpatialInertia.Zero(),  # Zero mass and inertia
+        model_instance=iiwa1_model
+    )
+
+    # Similarly for iiwa_2
+    contact_body_iiwa2 = plant.AddRigidBody(
+        name="contact_body_iiwa2",
+        M_BBo_B=SpatialInertia.Zero(),
+        model_instance=iiwa2_model
+    )
+    
+    end_effector_frame_iiwa1 = plant.GetFrameByName("iiwa_link_7", iiwa1_model)
+    end_effector_frame_iiwa2 = plant.GetFrameByName("iiwa_link_7", iiwa2_model)
+    
+    virtual_contact_frame_iiwa1 = plant.AddFrame(FixedOffsetFrame(
+        name="virtual_contact_frame_pos",
+        P=end_effector_frame_iiwa1,
+        X_PF=RigidTransform(p=[0, 0, 0.09])  # TODO Adjust offset 
+    ))
+
+    virtual_contact_frame_iiwa2 = plant.AddFrame(FixedOffsetFrame(
+        name="virtual_contact_frame_neg",
+        P=end_effector_frame_iiwa2,
+        X_PF=RigidTransform(p=[0, 0, 0.09])
+    ))
+
+    # Add Virtual Universal Joint for iiwa_1 (to model contact)
+    universal_joint_iiwa1 = plant.AddJoint(UniversalJoint(
+        name="universal_joint_iiwa1",
+        frame_on_parent=virtual_contact_frame_iiwa1,
+        frame_on_child=contact_body_iiwa1.body_frame(),
+        damping=0
+    ))
+
+    # Add Virtual Universal Joint for iiwa_2 (to model contact)
+    universal_joint_iiwa2 = plant.AddJoint(UniversalJoint(
+        name="universal_joint_iiwa2",
+        frame_on_parent=virtual_contact_frame_iiwa2,
+        frame_on_child=contact_body_iiwa2.body_frame(),
+        damping=0
+    ))
+
+    sphere_radius = 0.01 
+
+    # Add sphere visuals of virtual contact bodies
+    plant.RegisterVisualGeometry(
+        body=contact_body_iiwa1,
+        X_BG=RigidTransform.Identity(),
+        shape=Sphere(sphere_radius),
+        name="contact_body_iiwa1_sphere",
+        diffuse_color=[1, 0, 0, 1]  
+    )
+
+    plant.RegisterVisualGeometry(
+        body=contact_body_iiwa2,
+        X_BG=RigidTransform.Identity(),
+        shape=Sphere(sphere_radius),
+        name="contact_body_iiwa2_sphere",
+        diffuse_color=[0, 0, 1, 1]
+    )
+
     plant.WeldFrames(plant.world_frame(), plant.GetFrameByName("iiwa_link_0", plant.GetModelInstanceByName("iiwa_1")), X_iiwa1)
     plant.WeldFrames(plant.world_frame(), plant.GetFrameByName("iiwa_link_0", plant.GetModelInstanceByName("iiwa_2")), X_iiwa2)
 
