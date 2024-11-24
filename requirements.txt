@@ -1,2 +1,2 @@
-manipulation
-drake
+manipulation == 2024.11.4.post1
+pydrake == 0.2.1

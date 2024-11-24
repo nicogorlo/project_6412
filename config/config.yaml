@@ -18,7 +18,7 @@ planner:
   tabletop_configurations:
     n_rotations: 8 # Number of rotations per side. n_samples = n_rotations * 6
 
-  primitives: ['YAW_90_cw', 'YAW_90_ccw', 'ROLL_90_cw', 'ROLL_90_ccw', 'TO_GOAL'] # ['YAW_90_cw', 'YAW_90_ccw', 'ROLL_90_cw', 'ROLL_90_ccw', 'PITCH_90_cw', 'PITCH_90_ccw', 'TO_GOAL']
+  primitives: ['YAW_90_cw'] #, 'YAW_90_ccw', 'ROLL_90_cw', 'ROLL_90_ccw'] # ['YAW_90_cw', 'YAW_90_ccw', 'ROLL_90_cw', 'ROLL_90_ccw', 'PITCH_90_cw', 'PITCH_90_ccw', 'TO_GOAL']
 
   lift_height: 0.4
   num_steps: 50
