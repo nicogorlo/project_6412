@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.spatial import KDTree
 from scipy.spatial import ConvexHull
+from scipy.spatial import Delaunay
 from pydrake.all import (
     Hyperellipsoid,
     AffineBall,
@@ -135,6 +136,21 @@ def rrt_multi_goal(start, goals, params):
 ''' Convex set generation:
 
 '''
+
+def in_hull(p, hull):
+    """
+    Test if points in `p` are in `hull`
+
+    `p` should be a `NxK` coordinates of `N` points in `K` dimensions
+    `hull` is either a scipy.spatial.Delaunay object or the `MxK` array of the 
+    coordinates of `M` points in `K`dimensions for which Delaunay triangulation
+    will be computed
+    """
+    
+    if not isinstance(hull,Delaunay):
+        hull = Delaunay(hull)
+
+    return hull.find_simplex(p)>=0
 
 def construct_combined_set(node1, node2):
     s1 = node1[1]
