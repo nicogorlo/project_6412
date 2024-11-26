@@ -74,7 +74,7 @@
 
     <!-- Z+ face (light blue) -->
     <visual name="cuboid_visual_z_pos">
-      <pose>0 0 0.145 0 0 0</pose>
+      <pose>0 0 0.145 0 0 3.14159</pose>
       <geometry>
         <box>
           <size>0.3 0.3 0.01</size>
@@ -88,7 +88,7 @@
 
     <!-- Z- face (dark blue) -->
     <visual name="cuboid_visual_z_neg">
-      <pose>0 0 -0.145 0 0 3.14159</pose>
+      <pose>0 0 -0.145 0 0 0</pose>
       <geometry>
         <box>
           <size>0.3 0.3 0.01</size>
@@ -114,22 +114,22 @@
     </collision>
   </link>
   <frame name="X_pos_contact">
-    <pose>0.16 0 0 0 0 0</pose> <!-- Position relative to the link -->
+    <pose>0.15 0 0 0 -1.5708 0</pose> <!-- Y-axis rotation of -90 degrees -->
   </frame>
   <frame name="X_neg_contact">
-    <pose>-0.16 0 0 0 0 0</pose>
+    <pose>-0.15 0 0 0 1.5708 0</pose> <!-- Y-axis rotation of +90 degrees -->
   </frame>
   <frame name="Y_pos_contact">
-    <pose>0 0.16 0 0 0 0</pose>
+    <pose>0 0.15 0 1.5708 0 0</pose> <!-- X-axis rotation of +90 degrees -->
   </frame>
   <frame name="Y_neg_contact">
-    <pose>0 -0.16 0 0 0 0</pose>
+    <pose>0 -0.15 0 -1.5708 0 0</pose> <!-- X-axis rotation of -90 degrees -->
   </frame>
   <frame name="Z_pos_contact">
-    <pose>0 0 0.16 0 0 0</pose>
+    <pose>0 0 0.15 3.14159 0 0</pose> <!-- No rotation needed -->
   </frame>
   <frame name="Z_neg_contact">
-    <pose>0 0 -0.16 0 0 0</pose>
+    <pose>0 0 -0.15 0 0 0</pose> <!-- X-axis rotation of 180 degrees -->
   </frame>
 </model>
 

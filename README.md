@@ -1,4 +1,4 @@
-# 6.412 Robotic Manipulation - final project
+# 6.4212 Robotic Manipulation - final project
 
 ## Students
 - [Nitish Dashora](https://www.nitishdashora.com/)

@@ -71,7 +71,7 @@ from pydrake.all import (
     yaml_load_typed
 )
 
-from pydrake.geometry.optimization import GraphOfConvexSetsOptions, HPolyhedron, Point # type: ignore
+from pydrake.geometry.optimization import GraphOfConvexSetsOptions, HPolyhedron, Point, ConvexHull # type: ignore
 from pydrake.planning import GcsTrajectoryOptimization
 from scipy.spatial import ConvexHull
 
@@ -83,10 +83,10 @@ from manipulation.meshcat_utils import AddMeshcatTriad
 from typing import NamedTuple
 import numpy as np
 import time
-
+import logging
 from dual_arm_manipulation import ROOT_DIR
 from dual_arm_manipulation.environment import dual_arm_environment
-from dual_arm_manipulation.planner import MotionPrimitive, MotionPrimitives
+from dual_arm_manipulation.planner import MotionPrimitive, MotionPrimitives, ContactMode
 from dual_arm_manipulation.utils import interpolate_6dof_poses, get_free_faces, pose_vec_to_transform, rotation_matrix_from_vectors
 import yaml
 
@@ -121,7 +121,7 @@ def visualise_trajectory(visualizer, poses):
             visualizer, "box_traj/" + "frame_{}".format(i), length=0.1, radius=0.006, X_PT=pose
         )
 
-def sample_ik(plant, plant_context, desired_pose, contact_mode = [[0.22, 0, 0], [-0.22, 0, 0]], initial_guess=None, visualizer=None):
+def sample_ik(plant, plant_context, desired_pose, contact_mode: ContactMode = ContactMode(), initial_guess=None, visualizer=None):
 
     iiwa1_model = plant.GetModelInstanceByName("iiwa_1")
     iiwa2_model = plant.GetModelInstanceByName("iiwa_2")
@@ -133,38 +133,28 @@ def sample_ik(plant, plant_context, desired_pose, contact_mode = [[0.22, 0, 0], 
     cube_contact_frame_neg = None
     cube_contact_frame_pos = None
 
-    if contact_mode[0][0] > 0:
-        constrained_axis = 0
-        theta_bounds = np.array([0.005, np.pi/4+ 0.1, np.pi/4+ 0.1])
-        cube_contact_frame_pos = plant.GetFrameByName("X_pos_contact", plant.GetModelInstanceByName("movable_cuboid"))
-        cube_contact_frame_neg = plant.GetFrameByName("X_neg_contact", plant.GetModelInstanceByName("movable_cuboid"))
-    elif contact_mode[0][1] > 0:
-        constrained_axis = 1
-        theta_bounds = np.array([np.pi/4+ 0.1, 0.005, np.pi/4+ 0.1])
-        cube_contact_frame_pos = plant.GetFrameByName("Y_pos_contact", plant.GetModelInstanceByName("movable_cuboid"))
-        cube_contact_frame_neg = plant.GetFrameByName("Y_neg_contact", plant.GetModelInstanceByName("movable_cuboid"))
-    else:
-        constrained_axis = 2
-        theta_bounds = np.array([np.pi/4+ 0.1, np.pi/4+ 0.1, 0.005])
-        cube_contact_frame_pos = plant.GetFrameByName("Z_pos_contact", plant.GetModelInstanceByName("movable_cuboid"))
-        cube_contact_frame_neg = plant.GetFrameByName("Z_neg_contact", plant.GetModelInstanceByName("movable_cuboid"))
+    cube_contact_frame_pos, cube_contact_frame_neg, constrained_axis, theta_bounds = contact_mode.get_contact_frame_pos(plant)
 
     if visualizer is not None:
         AddMeshcatTriad(
-            visualizer, "contact_mode/" + "axis_{}".format(constrained_axis), length=0.1, radius=0.006, X_PT=cube_contact_frame_pos.CalcPoseInWorld(plant_context)
+            visualizer, "contact_mode_pos/" + "axis_{}".format(constrained_axis), length=0.1, radius=0.006, X_PT=cube_contact_frame_pos.CalcPoseInWorld(plant_context)
         )
         AddMeshcatTriad(
-            visualizer, "contact_mode/" + "axis_{}".format(constrained_axis), length=0.1, radius=0.006, X_PT=cube_contact_frame_neg.CalcPoseInWorld(plant_context)
+            visualizer, "contact_mode_neg/" + "axis_{}".format(constrained_axis), length=0.1, radius=0.006, X_PT=cube_contact_frame_neg.CalcPoseInWorld(plant_context)
         )
 
     # Define the transform between the object pose and the desired gripper pose:
-    p_CG1 = contact_mode[0]
-    p_CG2 = contact_mode[1]
-    R_CG1 = rotation_matrix_from_vectors(np.array(p_CG1), np.array([0,0,1]))
-    R_CG2 = rotation_matrix_from_vectors(np.array(p_CG2), np.array([0,0,1]))
+    # p_CG1 = cube_contact_frame_pos.translation()
+    # p_CG2 = cube_contact_frame_neg.translation()
+    # R_CG1 = cube_contact_frame_pos.rotation()
+    # R_CG2 = cube_contact_frame_neg.rotation()
+    # p_CG1 = contact_mode.contact_positions[0]
+    # p_CG2 = contact_mode.contact_positions[1]
+    # R_CG1 = rotation_matrix_from_vectors(np.array(p_CG1), np.array([0,0,-1]))
+    # R_CG2 = rotation_matrix_from_vectors(np.array(p_CG2), np.array([0,0,-1]))
 
-    X_CG1 = RigidTransform(R_CG1, np.array(p_CG1))
-    X_CG2 = RigidTransform(R_CG2, np.array(p_CG2))
+    X_CG1 = cube_contact_frame_pos.CalcPoseInBodyFrame(plant_context)
+    X_CG2 = cube_contact_frame_neg.CalcPoseInBodyFrame(plant_context)
     X_WG1 = desired_pose.multiply(X_CG1)
     X_WG2 = desired_pose.multiply(X_CG2)
 
@@ -194,14 +184,6 @@ def sample_ik(plant, plant_context, desired_pose, contact_mode = [[0.22, 0, 0], 
     end_effector_frame_iiwa2 = plant.GetFrameByName("contact_body_iiwa2", iiwa2_model)
     cube_frame = plant.GetFrameByName("cuboid_body", plant.GetModelInstanceByName("movable_cuboid"))
 
-    if visualizer is not None:
-        AddMeshcatTriad(
-            visualizer, "iiwa1/" + "contact_body_iiwa1", length=0.1, radius=0.003, X_PT=end_effector_frame_iiwa1.CalcPoseInWorld(plant_context)
-        )
-
-        AddMeshcatTriad(
-            visualizer, "iiwa2/" + "contact_body_iiwa2", length=0.1, radius=0.003, X_PT=end_effector_frame_iiwa2.CalcPoseInWorld(plant_context)
-        )
     # Add position and orientation constraints for iiwa_1
     ik_iiwa.AddPositionConstraint(
         frameA=cube_contact_frame_pos,
@@ -265,6 +247,14 @@ def sample_ik(plant, plant_context, desired_pose, contact_mode = [[0.22, 0, 0], 
     if result_iiwa.is_success():
         q_sol_iiwa = result_iiwa.GetSolution(ik_iiwa.q())
         print("Solution found for iiwa:", q_sol_iiwa)
+        if visualizer is not None:
+            AddMeshcatTriad(
+                visualizer, "iiwa1/" + "contact_body_iiwa1", length=0.1, radius=0.003, X_PT=end_effector_frame_iiwa1.CalcPoseInWorld(plant_context)
+            )
+
+            AddMeshcatTriad(
+                visualizer, "iiwa2/" + "contact_body_iiwa2", length=0.1, radius=0.003, X_PT=end_effector_frame_iiwa2.CalcPoseInWorld(plant_context)
+            )
     else:
         print("No solution found for iiwa.")
         return None
@@ -401,17 +391,35 @@ def ik_trajectory(root_diagram: Diagram,
                   plant_context, 
                   simulator, 
                   visualizer, 
-                  t):
+                  t,
+                  contact_mode = ContactMode()):
     # Now solve for the IK for each pose in the trajectory:
     q_space_trajectory = []
     print(len(q_space_trajectory))
+    
     t = 0
     valid_solutions = []
     for i, pose in enumerate(tp_traj):
+
+
+        # TODO DEBUG
+        xyz = pose.translation()
+        quat = pose.rotation().ToQuaternion()
+        plant.SetPositions(plant_context, plant.GetModelInstanceByName("movable_cuboid"),  [quat.w(), quat.x(), quat.y(), quat.z(), xyz[0], xyz[1], xyz[2]])
+        try:
+            simulator.AdvanceTo(0.01*(t+1))
+        except:
+            print("Simulation failed at t = ", t)
+        root_diagram.ForcedPublish(root_context)
+
+        time.sleep(0.05)
+        # TODO END DEBUG
+
+
         if len(valid_solutions) != 0:
-            solution = sample_ik(plant, plant_context, pose, initial_guess=valid_solutions[-1], visualizer=visualizer)
+            solution = sample_ik(plant, plant_context, pose, contact_mode=contact_mode, initial_guess=valid_solutions[-1], visualizer=visualizer)
         else:
-            solution = sample_ik(plant, plant_context, pose, visualizer=visualizer)
+            solution = sample_ik(plant, plant_context, pose, contact_mode=contact_mode, visualizer=visualizer)
         if solution is not None:
             valid_solutions.append(solution)
             q_space_trajectory.append(solution)
@@ -436,7 +444,7 @@ def ik_trajectory(root_diagram: Diagram,
     print(task_space_valid_solutions.shape)
     E = AffineBall.MinimumVolumeCircumscribedEllipsoid(task_space_valid_solutions)
 
-    return E
+    return valid_solutions, E
 
 def get_goal_conditioned_tabletop_configurations(goal_pose, contact_modes, n_tabletop_config_per_side, plant, plant_context, simulator, scene_graph, diagram, visualizer, t):
 
@@ -448,18 +456,21 @@ def get_goal_conditioned_tabletop_configurations(goal_pose, contact_modes, n_tab
     
     t=100
 
-    for contact_mode_name, contact_mode in contact_modes.items():
+    for contact_mode in contact_modes:
+        contact_mode_name = contact_mode.name
         # determine if IK solution exists for contact mode in goal configuration
         solution = sample_ik(plant, plant_context, goal_pose, contact_mode=contact_mode, visualizer=visualizer)
 
         tabletop_sample_poses = []
         
-
         if solution is not None:
+            
+            logging.info(f"[goal_conditioned_tabletop_configurations] viable contact mode: {contact_mode_name} for goal pose: {goal_pose}") 
+
             plant.SetPositions(plant_context, solution)
             # get tabletop configurations that work for the contact mode
             # sample poses in an ellipsoid between the goal pose and tabletop configurations to get a convex set
-            for face_name, face_pos in get_free_faces(contact_mode_name, contact_modes).items():
+            for face_name, face_pos in contact_mode.get_free_faces().items():
                 face_normal = face_pos / np.linalg.norm(face_pos)
 
                 # get poses s.t. face is in contact with the tabletop surface 
@@ -478,17 +489,20 @@ def get_goal_conditioned_tabletop_configurations(goal_pose, contact_modes, n_tab
 
                     if sample_solution is None:
                         continue
-                    plant.SetPositions(plant_context, solution)
+                    plant.SetPositions(plant_context, sample_solution)
                     try:
                         simulator.AdvanceTo(0.01*(t+1))
                     except:
                         print("Simulation failed at t = ", t)
+
 
                     tabletop_sample_poses.append(sample_solution)
                     t+=1
 
                 # sample poses in an ellipsoid between the goal pose and valid tabletop configurations to get a convex set
                 tp_traj = None
+
+            logging.info(f"[goal_conditioned_tabletop_configurations] Sampled {len(tabletop_sample_poses)} valid tabletop poses for contact mode: {contact_mode_name}")
 
             sample_final_contact_modes[contact_mode_name] = tabletop_sample_poses
 
@@ -507,13 +521,6 @@ def main():
     diagram = builder.Build()
     plant.Finalize()
 
-    # if cfg["setup"]["fixed_cube"]:
-    #     plant.WeldFrames(
-    #         plant.GetFrameByName("iiwa_link_0", plant.GetModelInstanceByName("iiwa_1")),
-    #         plant.GetFrameByName("cuboid_body", plant.GetModelInstanceByName("movable_cuboid")),
-    #         RigidTransform([0, 0, -0.05])
-    #     )
-
     simulator = Simulator(diagram)
     context = simulator.get_mutable_context()
     plant_context = plant.GetMyMutableContextFromRoot(context)
@@ -529,33 +536,51 @@ def main():
     print(f"Number of positions: {num_positions}")
 
     goal_pose = pose_vec_to_transform(cfg["eval"]["goal_pose"])
-    contact_modes = cfg["planner"]["contact_modes"]
+    contact_mode_names = cfg["planner"]["contact_modes"].keys()
+    contact_modes = [ContactMode(name, cfg) for name in contact_mode_names]
     n_rotations = cfg["planner"]["tabletop_configurations"]["n_rotations"]
     sample_final_contact_modes = get_goal_conditioned_tabletop_configurations(goal_pose, contact_modes, n_rotations, plant, plant_context, simulator, scene_graph, diagram, visualizer, t)
 
     # Define desired end-effector poses
-    motion_primitives = MotionPrimitives(RigidTransform(RotationMatrix(), np.array([0.0, 0.0, 0.2])), 'X_POS', cfg)
 
-    for primitive in motion_primitives.primitives:
+    for contact_mode in contact_modes: # testing (out of ['X_POS', 'X_NEG', 'Y_POS', 'Y_NEG', 'Z_POS', 'Z_NEG'])
+        """
+        Iterate through all the contact modes and sample IK solutions along a given trajectory
+        
+        TODO: A better way to do it would be to only compute samples for one contact mode and then translate it to the other contact modes
+        """
+        # DEBUG
+        if not contact_mode.name.startswith("Z"):
+            continue
 
-        tp_traj =  primitive.trajectory
+        contact_mode_name = contact_mode.name
 
-        # visualise task-space trajectory
-        visualise_trajectory(visualizer, tp_traj)
+        start_pose = contact_mode.default_pose
 
-        visualizer.StartRecording()
+        motion_primitives = MotionPrimitives(start_pose, contact_mode, cfg)
 
-        E = ik_trajectory(diagram, context, tp_traj, plant, plant_context, simulator, visualizer, t)
-        diagram.ForcedPublish(context)
+        for primitive in motion_primitives:
 
-        print("Press the 'Continue Animation' button in Meshcat to continue to the next motion primitive.")
-        visualizer.AddButton("Continue Animation", "Escape")
+            tp_traj =  primitive.trajectory
 
-        while visualizer.GetButtonClicks("Continue Animation") < 1:
-            pass
-        visualizer.DeleteButton("Continue Animation")
+            # visualise task-space trajectory
+            visualise_trajectory(visualizer, tp_traj)
 
-        # AnimateBall(diagram, context, plant, E, 0.1, visualizer)
+            visualizer.StartRecording()
+
+            valid_solutions, E = ik_trajectory(diagram, context, tp_traj, plant, plant_context, simulator, visualizer, t, contact_mode=contact_mode)
+
+            visualise_trajectory(visualizer, [RigidTransform(RollPitchYaw(valid_solution[19:][:3]).ToRotationMatrix(), valid_solution[19:][3:]+np.array([0,0,.5])) for valid_solution in valid_solutions.T])
+            diagram.ForcedPublish(context)
+
+            # print("Press the 'Continue Animation' button in Meshcat to continue to the next motion primitive.")
+            # visualizer.AddButton("Continue Animation", "Escape")
+
+            # while visualizer.GetButtonClicks("Continue Animation") < 1:
+            #     pass
+            # visualizer.DeleteButton("Continue Animation")
+
+            # AnimateBall(diagram, context, plant, E, 0.1, visualizer)
 
 
     # neccessary for visualisation:
