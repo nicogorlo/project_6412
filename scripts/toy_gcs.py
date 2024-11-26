@@ -4,19 +4,17 @@ from gcs import construct_convex_hulls, construct_graph_of_convex_sets, generate
 
 # define a few line segments for 1 contact mode (in 2D for now)
 cm1 = [
-    np.linspace([0, 0], [1, 1], 5),
-    np.linspace([2, 2], [3, 3], 5),
-    np.linspace([4, 4], [5, 3], 5),
+    np.linspace([-5, 5], [0, 0], 5),
+    np.linspace([-5, 0], [0, 5], 5),
 ]
 
 cm2 = [
-    np.linspace([0, 0], [-1, -1], 5),
-    np.linspace([-2, -2], [-3, -3], 5),
-    np.linspace([-4, -4], [-5, -3], 5),
+    np.linspace([-1, 5], [4, 0], 5),
+    np.linspace([-1, 0], [4, 5], 5),
 ]
 cm3 = [
-    np.linspace([-6, -9], [-5, -3], 5),
-    np.linspace([-5, -8], [-8, -5], 5),
+    np.linspace([3, 5], [8, 0], 5),
+    np.linspace([3, 0], [8, 5], 5),
 ]
 
 cms = {
@@ -27,8 +25,8 @@ cms = {
 
 chs = construct_convex_hulls(cms)
 gcs = construct_graph_of_convex_sets(chs)
-start = np.array([-6, -9])
-end = np.array([5, 3])
+start = np.array([-4, 3])
+end = np.array([7, 3])
 
 print("graph edges:", [e.name() for e in gcs.Edges()])
 
