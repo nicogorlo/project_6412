@@ -166,7 +166,7 @@ def construct_combined_set(node1, node2):
     density = len(combined_set) / volume
     return combined_hull, combined_set, density 
 
-def construct_set(paths, merge_iterations = 500):
+def construct_set(paths, density_threshold=20, max_iterations=2000):
     ## construct initial sets based on paths:
     Nodes = []
     node_indx = 0
@@ -193,7 +193,7 @@ def construct_set(paths, merge_iterations = 500):
     ## merge sets:
     negative_points = np.array(negative_points)
     track_nodes = []
-    for merge_iteration in range(len(Nodes)):
+    for merge_iteration in range(min(len(Nodes), max_iterations)):
         next_iter = False
         set_centers = []
         for node in Nodes:
@@ -216,7 +216,7 @@ def construct_set(paths, merge_iterations = 500):
                 if density:
                     if in_hull(negative_points, union_points).any():
                         continue
-                    if density > 20:
+                    if density > density_threshold:
                         node = [E, union_points, node_indx]
                         Nodes.append(node)
                         node_indx += 1
@@ -289,7 +289,7 @@ def visualise_sets(paths, params, Nodes):
 # Main
 if __name__ == "__main__":
     np.random.seed(42)
-    start = np.array([6, 3])
+    start = np.array([7, 3])
     # goals = [np.array([9, 9]), np.array([1, 8]), np.array([8, 1])]
     # generate random goals:
     paths = []
