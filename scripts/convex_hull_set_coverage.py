@@ -9,6 +9,8 @@ from pydrake.all import (
     Intersection,
 )
 from matplotlib.patches import Polygon
+import copy
+
 
 ''' RRT utils: 
 
@@ -148,7 +150,7 @@ def in_hull(p, hull):
     """
     
     if not isinstance(hull,Delaunay):
-        hull = Delaunay(hull)
+        hull = Delaunay(hull, qhull_options='QJ')
 
     return hull.find_simplex(p)>=0
 
@@ -168,13 +170,18 @@ def construct_set(paths, merge_iterations = 500):
     ## construct initial sets based on paths:
     Nodes = []
     node_indx = 0
+    negative_points = []
     for path in paths:
         if path:
             for i in range(len(path) - 1):
                 p1 = path[i]
                 p2 = path[i + 1]
-                if p1[1] or p2[1]:
+                if p1[1]:
                     # invalid IK solution
+                    negative_points.append(p1[0])
+                    continue
+                if p2[1]:
+                    negative_points.append(p2[0])
                     continue
                 segment_points = np.array([p1[0], p2[0]])
                 # compute set from segment
@@ -184,8 +191,9 @@ def construct_set(paths, merge_iterations = 500):
                 node_indx += 1
     print('Initial number of nodes: ', len(Nodes))
     ## merge sets:
-
-    for merge_iteration in range(1000):
+    negative_points = np.array(negative_points)
+    track_nodes = []
+    for merge_iteration in range(len(Nodes)):
         next_iter = False
         set_centers = []
         for node in Nodes:
@@ -194,17 +202,20 @@ def construct_set(paths, merge_iterations = 500):
         if len(Nodes) == 1:
             break
         for i in range(len(Nodes)):
-            _, closest_indices = kdtree.query(set_centers[i], k=2) # get the top 5 closest
+            _, closest_indices = kdtree.query(set_centers[i], k=3) # get the top 5 closest
             for j in closest_indices:
                 if i == j:
                     continue
                 ## compute the merged set density:
 
                 E, union_points, density = construct_combined_set(Nodes[i], Nodes[j])
+                
                 # print(density)
                 # add check that no negative points are in the set:
                 ### check
                 if density:
+                    if in_hull(negative_points, union_points).any():
+                        continue
                     if density > 20:
                         node = [E, union_points, node_indx]
                         Nodes.append(node)
@@ -219,8 +230,17 @@ def construct_set(paths, merge_iterations = 500):
                         break
             if next_iter:
                 break
+        
+        
+        # check if the previous graph is the same:
+        if track_nodes:
+            if len(track_nodes[-1]) == len(Nodes):
+                break
+        track_nodes.append(copy.deepcopy(Nodes))
+        
+    print(len(track_nodes))
     print(f"Number of nodes after merging: {len(Nodes)}")
-    return Nodes
+    return Nodes, track_nodes
 
 def visualise_sets(paths, params, Nodes):
     """Visualise the RRT and paths."""
@@ -239,15 +259,15 @@ def visualise_sets(paths, params, Nodes):
     #     plt.plot([parent[0], child[0]], [parent[1], child[1]], '-g')
 
     # Plot paths to goals
-    for path in paths:
-        if path:
-            for i in range(len(path) - 1):
+    # for path in paths:
+    #     if path:
+    #         for i in range(len(path) - 1):
                 
-                plt.plot([path[i][0][0], path[i + 1][0][0]], [path[i][0][1], path[i + 1][0][1]], '-b', alpha=0.5)
-                if path[i][1]:
-                    plt.scatter(path[i][0][0], path[i][0][1], color='r', s=20, marker='x')
-                else:
-                    plt.scatter(path[i][0][0], path[i][0][1], color='b', s=20, marker='o')
+    #             plt.plot([path[i][0][0], path[i + 1][0][0]], [path[i][0][1], path[i + 1][0][1]], '-b', alpha=0.5)
+    #             if path[i][1]:
+    #                 plt.scatter(path[i][0][0], path[i][0][1], color='r', s=20, marker='x')
+    #             else:
+    #                 plt.scatter(path[i][0][0], path[i][0][1], color='b', s=20, marker='o')
             # path = np.array(path)
             # plt.plot(path[:, 0], path[:, 1], '-b', linewidth=2, marker='o')
 
@@ -256,6 +276,8 @@ def visualise_sets(paths, params, Nodes):
             scv = node[0]
             if scv is not None:
                 plt.fill(scv.points[scv.vertices, 0], scv.points[scv.vertices, 1], color='lightblue', alpha=0.5)
+            else:
+                plt.plot(node[1][:, 0], node[1][:, 1], color='lightblue', alpha=0.5)
 
     # Mark start and goals
     plt.scatter(paths[0][0][0][0], paths[0][0][0][1], color='yellow', label="Start", s=100)
@@ -271,13 +293,16 @@ if __name__ == "__main__":
     # goals = [np.array([9, 9]), np.array([1, 8]), np.array([8, 1])]
     # generate random goals:
     paths = []
-    for i in range(30):
+    for i in range(50):
         goals = [np.random.uniform(params.map_bounds[0], params.map_bounds[1], 2) for _ in range(1)]
         tree, path = rrt_multi_goal(start, goals, params)
         paths.append(path[0])
 
     plot_paths(paths, params)
 
-    Nodes  = construct_set(paths)
+    Nodes, track_nodes  = construct_set(paths)
 
     visualise_sets(paths, params, Nodes)
+    # for i in range(len(track_nodes)):
+    #     if i % 30 == 0:
+    #         visualise_sets(paths, params, track_nodes[i])
