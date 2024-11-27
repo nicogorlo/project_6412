@@ -1,27 +1,35 @@
 from abc import ABC, abstractmethod
+from typing import Optional
 from pydrake.systems.framework import LeafContext
 
 from pydrake.all import (
     RigidTransform,
     RotationMatrix,
     Quaternion,
-    RollPitchYaw
+    RollPitchYaw,
+    Diagram,
+    MultibodyPlant,
+    InverseKinematics,
+    Solve
 )  
 
 from pathlib import Path
 from dual_arm_manipulation import ROOT_DIR
-from dual_arm_manipulation.utils import pose_vec_to_transform
+from dual_arm_manipulation.contact_mode import ContactMode
+from dual_arm_manipulation.trajectory_primitives import TrajectoryPrimitives, TrajectoryPrimitive
+from dual_arm_manipulation.utils import pose_vec_to_transform, rotation_matrix_from_vectors
 import numpy as np
+import yaml
+import logging
 
 from mergedeep import merge
 
-VALID_CONTACT_MODES = ['X_POS', 'X_NEG', 'Y_POS', 'Y_NEG', 'Z_POS', 'Z_NEG']
 
 class AbstractPlanner(ABC):
-    def __init__(self, plant_context: LeafContext, goal_pose: np.ndarray, simulate: bool = False):
+    def __init__(self, plant: MultibodyPlant, plant_context: LeafContext, simulate: bool = False):
         self.simulate: bool = simulate
+        self.plant: MultibodyPlant = plant
         self.plant_context: LeafContext = plant_context
-        self.goal_pose: np.ndarray = goal_pose
         
         self.config = {}
         
@@ -37,239 +45,240 @@ class AbstractPlanner(ABC):
         pass
 
     def _load_config(self, config_path: Path):
-        self.config = config_path
+        with open(config_path, "r") as file:
+            self.config = yaml.safe_load(file)["planner"]
 
 
-class ContactMode:
-    """
-    Class to load and store contact modes.
-    """
-    def __init__(self, name: str = 'X_POS', config: dict = {}):
-        assert name in VALID_CONTACT_MODES, f"Invalid contact mode: {name}"
-        self.name = name
-        if 'planner' in config:
-            self.contact_positions = config['planner']['contact_modes'][name]
-        else:
-            self.contact_positions = [[0.15, 0, 0], [-0.15, 0, 0]] # TODO: define kDefaultConfig
-        self.config = config
+class GCSPlanner(AbstractPlanner):
+    def __init__(self, plant: MultibodyPlant, plant_context: LeafContext, start_pose: RigidTransform, goal_pose: RigidTransform, contact_modes: list[ContactMode], simulate: bool = False, config_path: Path = ROOT_DIR / "config" / "config.yaml"):
+        super().__init__(plant, plant_context, simulate)
 
-        self.default_pose = self.get_default_pose_()
+        self._load_config(config_path)
 
-    def get_free_faces(self):
-        for axis in ['X', 'Y', 'Z']:
-            if self.name.startswith(axis):
-                return {name: free_contact_mode[0] for name, free_contact_mode in self.config['planner']['contact_modes'].items() if not name.startswith(axis)}
-        
-    def get_contact_frame_pos(self, plant):
-        if self.name == 'X_POS':
-            constrained_axis = 0
-            theta_bounds = np.array([0.005, np.pi/4+ 0.1, np.pi/4+ 0.1])
-            cube_contact_frame_pos = plant.GetFrameByName("X_pos_contact", plant.GetModelInstanceByName("movable_cuboid"))
-            cube_contact_frame_neg = plant.GetFrameByName("X_neg_contact", plant.GetModelInstanceByName("movable_cuboid"))
-        elif self.name == 'X_NEG':
-            constrained_axis = 0
-            theta_bounds = np.array([0.005, np.pi/4+ 0.1, np.pi/4+ 0.1])
-            cube_contact_frame_pos = plant.GetFrameByName("X_neg_contact", plant.GetModelInstanceByName("movable_cuboid"))
-            cube_contact_frame_neg = plant.GetFrameByName("X_pos_contact", plant.GetModelInstanceByName("movable_cuboid"))
-        elif self.name == 'Y_POS':
-            constrained_axis = 1
-            theta_bounds = np.array([np.pi/4+ 0.1, 0.005, np.pi/4+ 0.1])
-            cube_contact_frame_pos = plant.GetFrameByName("Y_pos_contact", plant.GetModelInstanceByName("movable_cuboid"))
-            cube_contact_frame_neg = plant.GetFrameByName("Y_neg_contact", plant.GetModelInstanceByName("movable_cuboid"))
-        elif self.name == 'Y_NEG':
-            constrained_axis = 1
-            theta_bounds = np.array([0.005, np.pi/4+ 0.1, np.pi/4+ 0.1])
-            cube_contact_frame_pos = plant.GetFrameByName("Y_neg_contact", plant.GetModelInstanceByName("movable_cuboid"))
-            cube_contact_frame_neg = plant.GetFrameByName("Y_pos_contact", plant.GetModelInstanceByName("movable_cuboid"))
-        elif self.name == 'Z_POS':
-            constrained_axis = 2
-            theta_bounds = np.array([np.pi/4+ 0.1, np.pi/4+ 0.1, 0.005])
-            cube_contact_frame_pos = plant.GetFrameByName("Z_pos_contact", plant.GetModelInstanceByName("movable_cuboid"))
-            cube_contact_frame_neg = plant.GetFrameByName("Z_neg_contact", plant.GetModelInstanceByName("movable_cuboid"))
-        elif self.name == 'Z_NEG':
-            constrained_axis = 2
-            theta_bounds = np.array([np.pi/4+ 0.1, np.pi/4+ 0.1, 0.005])
-            cube_contact_frame_pos = plant.GetFrameByName("Z_neg_contact", plant.GetModelInstanceByName("movable_cuboid"))
-            cube_contact_frame_neg = plant.GetFrameByName("Z_pos_contact", plant.GetModelInstanceByName("movable_cuboid"))
-        else:
-            print("Invalid contact mode.")
-            raise ValueError
-        
-        return cube_contact_frame_pos, cube_contact_frame_neg, constrained_axis, theta_bounds
+        self.start_pose: RigidTransform = start_pose
+        self.goal_pose: RigidTransform = goal_pose
+        self.contact_modes = contact_modes
 
-    def rotate_around_contact_axis(self, angle):
-        if self.name == 'X_POS':
-            return RotationMatrix.MakeXRotation(angle)
-        elif self.name == 'X_NEG':
-            return RotationMatrix.MakeXRotation(-angle)
-        elif self.name == 'Y_POS':
-            return RotationMatrix.MakeYRotation(angle)
-        elif self.name == 'Y_NEG':
-            return RotationMatrix.MakeYRotation(-angle)
-        elif self.name == 'Z_POS':
-            return RotationMatrix.MakeZRotation(angle)
-        elif self.name == 'Z_NEG':
-            return RotationMatrix.MakeZRotation(-angle)
-        else:
-            raise ValueError(f"Invalid contact mode: {self.name}")
-        
-    def get_default_pose_(self):
-        if self.name == "X_POS":
-            return RigidTransform(RotationMatrix(), np.array([0.0, 0.0, 0.2]))
-        elif self.name == "X_NEG":
-            return RigidTransform(RotationMatrix(RollPitchYaw((0,0, np.pi))), np.array([0.0, 0.0, 0.2]))
-        elif self.name == "Y_POS":
-            return RigidTransform(RotationMatrix(RollPitchYaw((np.pi/2, np.pi/2, 0))), np.array([0.0, 0.0, 0.2]))
-        elif self.name == "Y_NEG":
-            return RigidTransform(RotationMatrix(RollPitchYaw((np.pi/2, -np.pi/2, 0))), np.array([0.0, 0.0, 0.2]))
-        elif self.name == "Z_POS":
-            return RigidTransform(RotationMatrix(RollPitchYaw((0, np.pi/2, 0))), np.array([0.0, 0.0, 0.2]))
-        elif self.name == "Z_NEG":
-            return RigidTransform(RotationMatrix(RollPitchYaw((0, -np.pi/2, 0))), np.array([0.0, 0.0, 0.2]))
-        else:
-            raise ValueError(f"Invalid contact mode: {self.name}")
+    def plan(self):
+        print("Planning")
+        return
 
-
-
-
-class MotionPrimitives:
-    """
-    Class to load and store motion primitives.
     
-    TODO:
-    * Integrate visualizer to visualize primitives and chain of primitives.
-    * Add random perturbations to the primitives to build convex sets.
-    """
-    def __init__(self, start_pose: RigidTransform, contact_mode: ContactMode, config: dict, config_override: dict = {}):
-        self.config = merge(config, config_override)
-        self.start_pose = start_pose
-        self.contact_mode = contact_mode
-        self.primitives = []
-        self._load_primitives()
+    def get_traj_primitives(self) -> list[Optional[np.ndarray]]:
+        """
+        Returns the trajectory primitives. These are sample trajectories that can be used to build convex sets.
 
-    def _load_primitives(self):
-        for primitive in self.config['planner']['primitives']:
-            self.primitives.append(MotionPrimitive(primitive, self.contact_mode, self.start_pose, self.config))
+        Iterates through all the contact modes and samples IK solutions along trajectory primitives.
+        
+        """
 
-    def __iter__(self):
-        return iter(self.primitives)
+        for contact_mode in self.contact_modes:
+
+            default_pose = contact_mode.default_pose
+
+            trajectory_primitives = TrajectoryPrimitives(default_pose, contact_mode, self.config)
+
+            contact_mode.trajectory_primitives = trajectory_primitives 
+
+            solutions = []
+
+            for primitive in trajectory_primitives:
+
+                solution = self.ik_trajectory(primitive.trajectory, contact_mode=contact_mode)
+
+                solutions.append(solution)
+
+            contact_mode.ik_solutions = solutions
 
 
-class MotionPrimitive:
-    """
-    Class to store and create a single motion primitive.
+    def get_goal_conditioned_tabletop_configurations(self):
 
-    Possible motion primitives are:
-    ['YAW_90_cw', 'YAW_90_ccw', 'ROLL_90_cw', 'ROLL_90_ccw', 'PITCH_90_cw', 'PITCH_90_ccw', 'TO_GOAL']
+        sample_final_contact_modes = {}
 
-    TODO:
-    * Add random perturbations to the primitives. 
-    * More explicity handle start and end configurations of cube (e.g., which face up).
-    """
-    def __init__(self, primitive_name: str, contact_mode: ContactMode, start_pose: RigidTransform, args: dict = {'goal_pose': [0.0, 0.0, 0.4], 'lift_height': 0.4, 'num_steps': 20}):
-        self.primitive_name = primitive_name
-        self.start_pose = start_pose
-        self.end_pose = RigidTransform()
-        self.contact_mode = contact_mode
-        self.duration = 0.0
-        self.args = args
-        self.trajectory: list[RigidTransform] = self._create_primitive()
+        for contact_mode in self.contact_modes:
 
-    def _create_primitive(self):
-        trajectory = []
+            contact_mode_name = contact_mode.name
+            # determine if IK solution exists for contact mode in goal configuration
+            solution = self.sample_ik(self.goal_pose, contact_mode=contact_mode)
 
-        if self.primitive_name == 'YAW_90_cw':
-            # Rotate by -pi/2 about the z-axis (clockwise yaw)
-            delta_angle = -np.pi / 2
-            num_steps = self.args['planner'].get('num_steps', 10)
-            for i in range(1, num_steps + 1):
-                fraction = i / num_steps
-                angle = delta_angle * fraction
-                rotation = RotationMatrix.MakeZRotation(angle).multiply(self.start_pose.rotation())
-                pose = RigidTransform(rotation, self.start_pose.translation())
-                trajectory.append(pose)
+            tabletop_sample_poses = []
+            tabletop_sample_solutions = []
+            
+            if solution is not None:
+                
+                logging.info(f"[goal_conditioned_tabletop_configurations] viable contact mode: {contact_mode_name} for goal pose: {self.goal_pose}") 
 
-        elif self.primitive_name == 'YAW_90_ccw':
-            # Rotate by +pi/2 about the z-axis (counterclockwise yaw)
-            delta_angle = np.pi / 2
-            num_steps = self.args['planner'].get('num_steps', 10)
-            for i in range(1, num_steps + 1):
-                fraction = i / num_steps
-                angle = delta_angle * fraction
-                rotation = RotationMatrix.MakeZRotation(angle).multiply(self.start_pose.rotation())
-                pose = RigidTransform(rotation, self.start_pose.translation())
-                trajectory.append(pose)
+                # get tabletop configurations that work for the contact mode
+                # sample poses in an ellipsoid between the goal pose and tabletop configurations to get a convex set
+                for face_name, face_pos in contact_mode.get_free_faces().items():
+                    face_normal = face_pos / np.linalg.norm(face_pos)
 
-        elif self.primitive_name == 'ROLL_90_cw':
-            # Lift up, rotate about x-axis by -pi/2 (clockwise roll), place down
-            lift_height = self.args['planner']['lift_height']
-            num_steps_lift = self.args['planner'].get('num_steps_lift', 15)
-            num_steps_rotate = self.args['planner'].get('num_steps_rotate', 15)
-            num_steps_lower = self.args['planner'].get('num_steps_lower', 15)
-            # Lift up
-            for i in range(1, num_steps_lift + 1):
-                fraction = i / num_steps_lift
-                translation = self.start_pose.translation() + np.array([0, 0, lift_height * fraction])
-                pose = RigidTransform(self.start_pose.rotation(), translation)
-                trajectory.append(pose)
-            # Rotate in air
-            for i in range(1, num_steps_rotate + 1):
-                fraction = i / num_steps_rotate
-                angle = -np.pi / 2 * fraction
-                rotation = self.start_pose.rotation().multiply(self.contact_mode.rotate_around_contact_axis(angle))
-                translation = self.start_pose.translation() + np.array([0, 0, lift_height])
-                pose = RigidTransform(rotation, translation)
-                trajectory.append(pose)
-            # Lower down
-            for i in range(1, num_steps_lower + 1):
-                fraction = i / num_steps_lower
-                translation = self.start_pose.translation() + np.array([0, 0, lift_height * (1 - fraction)])
-                rotation = self.start_pose.rotation().multiply(self.contact_mode.rotate_around_contact_axis(-np.pi / 2))
-                pose = RigidTransform(rotation, translation)
-                trajectory.append(pose)
+                    # get poses s.t. face is in contact with the tabletop surface 
+                    tabletop_rotation = rotation_matrix_from_vectors(np.array([0, 0, 1]), np.array(-face_normal))
+                    tabletop_translation = np.array([0, 0, 1]) * np.linalg.norm(face_pos)
+                    for angle in np.linspace(0, 2*np.pi, self.config['tabletop_configurations']['n_rotations']):
+                        rotation_sample_sol = RotationMatrix.MakeZRotation(angle)
+                        rotation_sample_sol = rotation_sample_sol.multiply(tabletop_rotation)
+                        tabletop_sample_pose = RigidTransform(rotation_sample_sol, tabletop_translation)
+                        sample_solution = self.sample_ik(tabletop_sample_pose, contact_mode=contact_mode)
 
-        elif self.primitive_name == 'ROLL_90_ccw':
-            # Lift up, rotate about x-axis by +pi/2 (counterclockwise roll), place down
-            lift_height = self.args['planner']['lift_height']
-            num_steps_lift = self.args['planner'].get('num_steps_lift', 15)
-            num_steps_rotate = self.args['planner'].get('num_steps_rotate', 15)
-            num_steps_lower = self.args['planner'].get('num_steps_lower', 15)
-            # Lift up
-            for i in range(1, num_steps_lift + 1):
-                fraction = i / num_steps_lift
-                translation = self.start_pose.translation() + np.array([0, 0, lift_height * fraction])
-                pose = RigidTransform(self.start_pose.rotation(), translation)
-                trajectory.append(pose)
-            # Rotate in air
-            for i in range(1, num_steps_rotate + 1):
-                fraction = i / num_steps_rotate
-                angle = np.pi / 2 * fraction
-                rotation = self.start_pose.rotation().multiply(self.contact_mode.rotate_around_contact_axis(angle))
-                translation = self.start_pose.translation() + np.array([0, 0, lift_height])
-                pose = RigidTransform(rotation, translation)
-                trajectory.append(pose)
-            # Lower down
-            for i in range(1, num_steps_lower + 1):
-                fraction = i / num_steps_lower
-                translation = self.start_pose.translation() + np.array([0, 0, lift_height * (1 - fraction)])
-                rotation = self.start_pose.rotation().multiply(self.contact_mode.rotate_around_contact_axis(np.pi / 2))
-                pose = RigidTransform(rotation, translation)
-                trajectory.append(pose)
+                        if sample_solution is not None:
+                            tabletop_sample_poses.append(tabletop_sample_pose)
+                            tabletop_sample_solutions.append(sample_solution)
 
-        elif self.primitive_name == 'TO_GOAL': # TODO: Not called right now, needs to be adapted for Y and Z contact modes
-            # Interpolate between self.start_pose and self.args['goal_pose']
-            goal_pose = pose_vec_to_transform(self.args['eval']['goal_pose'])
-            num_steps = self.args['planner'].get('num_steps', 10)
-            for i in range(1, num_steps + 1):
-                fraction = i / num_steps
-                translation = (1 - fraction) * self.start_pose.translation() + fraction * goal_pose.translation()
-                start_rpy = RollPitchYaw(self.start_pose.rotation())
-                goal_rpy = RollPitchYaw(goal_pose.rotation())
-                delta_rpy = goal_rpy.vector() - start_rpy.vector()
-                rpy = start_rpy.vector() + fraction * delta_rpy
-                rotation = RotationMatrix(RollPitchYaw(rpy))
-                pose = RigidTransform(rotation, translation)
-                trajectory.append(pose)
+                logging.info(f"[goal_conditioned_tabletop_configurations] Sampled {len(tabletop_sample_poses)} valid tabletop poses for contact mode: {contact_mode_name}")
+
+                sample_final_contact_modes[contact_mode_name] = tabletop_sample_poses
+
+                for tabletop_pose, solution in zip(tabletop_sample_poses, tabletop_sample_solutions):
+                    trajectory_primitive = TrajectoryPrimitive('TO_GOAL', contact_mode, tabletop_pose, self.config, self.goal_pose)
+
+                    contact_mode.trajectory_primitives.primitives.append(trajectory_primitive)
+
+                    solution = self.ik_trajectory(trajectory_primitive.trajectory, contact_mode=contact_mode)
+
+                    contact_mode.ik_solutions.append(solution)
+
+        return sample_final_contact_modes
+
+    
+    def ik_trajectory(self,
+                      tp_traj,
+                      contact_mode = ContactMode()):
+        """
+        solves for the IK solution for each pose in the trajectory:
+        """
+
+        q_space_trajectory = []
+        print(len(q_space_trajectory))
+        
+        t = 0
+        solutions = []
+        n_invalid_solutions = 0
+
+        for i, pose in enumerate(tp_traj):
+
+            if len(solutions) != n_invalid_solutions and solutions[-1] is not None:
+                solution = self.sample_ik(pose, contact_mode=contact_mode, initial_guess=solutions[-1])
+            else:
+                solution = self.sample_ik(pose, contact_mode=contact_mode)
+            if solution is not None:
+                solutions.append(solution)
+                q_space_trajectory.append(solution)
+            else:
+                solutions.append(None)
+                q_space_trajectory.append(None)
+                print("No solution found for the pose.")
+                n_invalid_solutions += 1
+
+        return solutions
+    
+    def sample_ik(self, desired_pose, contact_mode: ContactMode = ContactMode(), initial_guess=None, visualizer=None):
+
+        iiwa1_model = self.plant.GetModelInstanceByName("iiwa_1")
+        iiwa2_model = self.plant.GetModelInstanceByName("iiwa_2")
+
+        constrained_axis = None
+        cube_contact_frame_neg = None
+        cube_contact_frame_pos = None
+
+        cube_contact_frame_pos, cube_contact_frame_neg, constrained_axis, theta_bounds = contact_mode.get_contact_frame_pos(self.plant)
+
+
+        X_CG1 = cube_contact_frame_pos.CalcPoseInBodyFrame(self.plant_context)
+        X_CG2 = cube_contact_frame_neg.CalcPoseInBodyFrame(self.plant_context)
+        X_WG1 = desired_pose.multiply(X_CG1)
+        X_WG2 = desired_pose.multiply(X_CG2)
+
+        # solve for IK for both:
+        # 1. Inverse Kinematics for iiwa_1
+        ik_iiwa = InverseKinematics(self.plant, self.plant_context)
+
+        # joint limits: (currently only for the universal joints to avoid collision)
+        # Retrieve the positions of the Universal Joint angles
+        theta1_iiwa1 = ik_iiwa.q()[self.plant.GetJointByName("universal_joint_iiwa1").position_start()]
+        theta2_iiwa1 = ik_iiwa.q()[self.plant.GetJointByName("universal_joint_iiwa1").position_start() + 1]
+
+        # constraints on the angles
+        ik_iiwa.prog().AddBoundingBoxConstraint(-np.pi/5, np.pi/5, theta1_iiwa1)
+        ik_iiwa.prog().AddBoundingBoxConstraint(-np.pi/5, np.pi/5, theta2_iiwa1)
+
+        # iiwa_2
+        theta1_iiwa2 = ik_iiwa.q()[self.plant.GetJointByName("universal_joint_iiwa2").position_start()]
+        theta2_iiwa2 = ik_iiwa.q()[self.plant.GetJointByName("universal_joint_iiwa2").position_start() + 1]
+
+        ik_iiwa.prog().AddBoundingBoxConstraint(-np.pi/5, np.pi/5, theta1_iiwa2)
+        ik_iiwa.prog().AddBoundingBoxConstraint(-np.pi/5, np.pi/5, theta2_iiwa2)
+
+        end_effector_frame_iiwa1 = self.plant.GetFrameByName("contact_body_iiwa1", iiwa1_model)
+        end_effector_frame_iiwa2 = self.plant.GetFrameByName("contact_body_iiwa2", iiwa2_model)
+        cube_frame = self.plant.GetFrameByName("cuboid_body", self.plant.GetModelInstanceByName("movable_cuboid"))
+
+        # Add position and orientation constraints for iiwa_1
+        ik_iiwa.AddPositionConstraint(
+            frameA=cube_contact_frame_pos,
+            frameB=end_effector_frame_iiwa1,
+            p_BQ=np.zeros(3),
+            p_AQ_lower=-0.005 * np.ones(3),
+            p_AQ_upper= 0.005 * np.ones(3)
+        )
+
+        ik_iiwa.AddOrientationConstraint(
+            frameAbar=self.plant.world_frame(),
+            R_AbarA=X_WG1.rotation(),
+            frameBbar=end_effector_frame_iiwa1,
+            R_BbarB=RigidTransform().rotation(),
+            theta_bound=0.05
+        )
+
+        # Add position and orientation constraints for iiwa_2
+        ik_iiwa.AddPositionConstraint(
+            frameA=cube_contact_frame_neg,
+            frameB=end_effector_frame_iiwa2,
+            p_BQ=np.zeros(3),
+            p_AQ_lower=-0.005 * np.ones(3),
+            p_AQ_upper= 0.005 * np.ones(3)
+        )
+
+        ik_iiwa.AddOrientationConstraint(
+            frameAbar=self.plant.world_frame(),
+            R_AbarA=X_WG2.rotation(),
+            frameBbar=end_effector_frame_iiwa2,
+            R_BbarB=RigidTransform().rotation(),
+            theta_bound=0.05
+        )
+
+        # Add a constraint to ensure dynamic feasbility with the cube
+        ik_iiwa.AddPositionConstraint(
+            frameB=cube_frame,
+            p_BQ=np.array([0, 0, 0]),
+            frameA=self.plant.world_frame(),
+            p_AQ_lower=desired_pose.translation() - 0.005,
+            p_AQ_upper=desired_pose.translation() + 0.005
+        )
+
+        ik_iiwa.AddOrientationConstraint(
+            frameAbar=self.plant.world_frame(),
+            R_AbarA=desired_pose.rotation(),
+            frameBbar=cube_frame,
+            R_BbarB=RigidTransform().rotation(),
+            theta_bound=0.005
+        )
+
+        # add collision constraint:
+        ik_iiwa.AddMinimumDistanceLowerBoundConstraint(0.001, 0.01)
+
+        # add initial guess:
+        if initial_guess is not None:
+            ik_iiwa.prog().AddQuadraticErrorCost(0.1*np.identity(len(ik_iiwa.q())), initial_guess, ik_iiwa.q())
+            ik_iiwa.prog().SetInitialGuess(ik_iiwa.q(), initial_guess)
+
+        result_iiwa = Solve(ik_iiwa.prog())
+        if result_iiwa.is_success():
+            q_sol_iiwa = result_iiwa.GetSolution(ik_iiwa.q())
+            print("Solution found for iiwa:", q_sol_iiwa)
         else:
-            raise ValueError(f"Unknown primitive_name: {self.primitive_name}")
-        return trajectory
+            print("No solution found for iiwa.")
+            return None
+
+        return q_sol_iiwa

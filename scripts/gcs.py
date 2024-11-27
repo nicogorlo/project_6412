@@ -14,8 +14,6 @@ solver_options = GraphOfConvexSetsOptions()
 solver_options.solver = MosekSolver()
 
 
-
-
 def construct_convex_hulls(
     name_to_trajectory_set: Dict[str, Set[List[np.ndarray]]]
 ) -> Dict[str, List[ConvexSet]]:

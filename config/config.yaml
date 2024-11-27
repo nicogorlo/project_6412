@@ -1,5 +1,6 @@
 eval:
   goal_pose: [1, 0, 0, 0, 0.0, 0.2, 0.6]
+  start_pose: [1, 0, 0, 0, 0.0, 0.0, 0.15]
 
 setup:
   fixed_cube: true
@@ -16,9 +17,9 @@ planner:
     Z_NEG: [[0, 0, -0.15], [0, 0, 0.15]]
 
   tabletop_configurations:
-    n_rotations: 8 # Number of rotations per side. n_samples = n_rotations * 6
+    n_rotations: 4 # Number of rotations per side. n_samples = n_rotations * 6
 
-  primitives: ['YAW_90_cw'] #, 'YAW_90_ccw', 'ROLL_90_cw', 'ROLL_90_ccw'] # ['YAW_90_cw', 'YAW_90_ccw', 'ROLL_90_cw', 'ROLL_90_ccw', 'PITCH_90_cw', 'PITCH_90_ccw', 'TO_GOAL']
+  primitives: ['YAW_90_cw', 'YAW_90_ccw', 'ROLL_90_cw', 'ROLL_90_ccw'] # ['YAW_90_cw', 'YAW_90_ccw', 'ROLL_90_cw', 'ROLL_90_ccw', 'PITCH_90_cw', 'PITCH_90_ccw', 'TO_GOAL']
 
   lift_height: 0.4
   num_steps: 50
