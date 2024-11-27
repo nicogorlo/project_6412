@@ -33,9 +33,8 @@ class TrajectoryPrimitives:
         self.start_pose = start_pose
         self.contact_mode = contact_mode
         self.primitives = []
-        self._load_primitives()
 
-    def _load_primitives(self):
+    def load_primitives(self):
         for primitive in self.config['primitives']:
             self.primitives.append(TrajectoryPrimitive(primitive, self.contact_mode, self.start_pose, self.config))
 
@@ -58,14 +57,15 @@ class TrajectoryPrimitive:
                  primitive_name: str, 
                  contact_mode: ContactMode, 
                  start_pose: RigidTransform, 
-                 args: dict = kDefaultConfig,
-                 goal_pose: RigidTransform = RigidTransform()):
+                 config: dict = kDefaultConfig,
+                 goal_pose: RigidTransform = RigidTransform(),
+                 config_overwrite: dict = {}):
         self.primitive_name = primitive_name
         self.start_pose = start_pose
         self.end_pose = RigidTransform()
         self.contact_mode = contact_mode
         self.duration = 0.0
-        self.args = args
+        self.args = merge(config, config_overwrite)
         self.goal_pose = goal_pose
         self.trajectory: list[RigidTransform] = self._create_primitive()
 

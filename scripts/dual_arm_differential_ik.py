@@ -87,7 +87,6 @@ import logging
 from dual_arm_manipulation import ROOT_DIR
 from dual_arm_manipulation.environment import dual_arm_environment
 from dual_arm_manipulation.contact_mode import ContactMode
-from dual_arm_manipulation.trajectory_primitives import TrajectoryPrimitives, TrajectoryPrimitive
 from dual_arm_manipulation.planner import GCSPlanner
 from dual_arm_manipulation.visualization import visualize_sample_trajectories, visualise_trajectory_poses
 from dual_arm_manipulation.utils import interpolate_6dof_poses, get_free_faces, pose_vec_to_transform, rotation_matrix_from_vectors
@@ -186,11 +185,12 @@ def main():
     n_rotations = cfg["planner"]["tabletop_configurations"]["n_rotations"]
 
     planner = GCSPlanner(plant, plant_context, start_pose, goal_pose, contact_modes, simulate=False, config_path=ROOT_DIR / "config" / "config.yaml")
-    planner.get_traj_primitives()
-    planner.get_goal_conditioned_tabletop_configurations()
+    planner.tabletop_trajectory_samples(np.array([[-0.2, 0.2],[-0.4, 0.4]]),10, 10)
+    # planner.get_traj_primitives()
+    # planner.get_goal_conditioned_tabletop_configurations()
     
     for contact_mode in contact_modes:
-        visualize_sample_trajectories(plant, plant_context, diagram, context, contact_mode, simulator, visualizer)
+        visualize_sample_trajectories(plant, plant_context, diagram, context, contact_mode, planner, simulator, visualizer)
 
     print("done.")
 

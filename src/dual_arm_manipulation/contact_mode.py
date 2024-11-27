@@ -8,7 +8,6 @@ import numpy as np
 from typing import Optional
 
 
-
 VALID_CONTACT_MODES = ['X_POS', 'X_NEG', 'Y_POS', 'Y_NEG', 'Z_POS', 'Z_NEG']
 
 
@@ -26,9 +25,6 @@ class ContactMode:
         self.config = config
 
         self.default_pose = self.get_default_pose_()
-
-        self.trajectory_primitives = None
-        self.ik_solutions: Optional[list[np.ndarray]] = None
 
     def get_free_faces(self):
         for axis in ['X', 'Y', 'Z']:

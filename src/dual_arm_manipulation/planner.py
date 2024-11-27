@@ -21,7 +21,7 @@ from dual_arm_manipulation.utils import pose_vec_to_transform, rotation_matrix_f
 import numpy as np
 import yaml
 import logging
-
+import random
 from mergedeep import merge
 
 
@@ -59,6 +59,9 @@ class GCSPlanner(AbstractPlanner):
         self.goal_pose: RigidTransform = goal_pose
         self.contact_modes = contact_modes
 
+        self.trajectory_primitives: dict[str,TrajectoryPrimitives] = {mode.name: TrajectoryPrimitives(mode.default_pose, mode, self.config) for mode in contact_modes}
+        self.ik_solutions: dict[str,list[Optional[np.ndarray]]] = {mode.name: [] for mode in contact_modes}
+
     def plan(self):
         print("Planning")
         return
@@ -77,8 +80,9 @@ class GCSPlanner(AbstractPlanner):
             default_pose = contact_mode.default_pose
 
             trajectory_primitives = TrajectoryPrimitives(default_pose, contact_mode, self.config)
+            trajectory_primitives.load_primitives()
 
-            contact_mode.trajectory_primitives = trajectory_primitives 
+            self.trajectory_primitives[contact_mode.name] = trajectory_primitives 
 
             solutions = []
 
@@ -88,7 +92,7 @@ class GCSPlanner(AbstractPlanner):
 
                 solutions.append(solution)
 
-            contact_mode.ik_solutions = solutions
+            self.ik_solutions[contact_mode.name] = solutions
 
 
     def get_goal_conditioned_tabletop_configurations(self):
@@ -133,13 +137,43 @@ class GCSPlanner(AbstractPlanner):
                 for tabletop_pose, solution in zip(tabletop_sample_poses, tabletop_sample_solutions):
                     trajectory_primitive = TrajectoryPrimitive('TO_GOAL', contact_mode, tabletop_pose, self.config, self.goal_pose)
 
-                    contact_mode.trajectory_primitives.primitives.append(trajectory_primitive)
-
+                    self.trajectory_primitives[contact_mode.name].primitives.append(trajectory_primitive)
                     solution = self.ik_trajectory(trajectory_primitive.trajectory, contact_mode=contact_mode)
-
-                    contact_mode.ik_solutions.append(solution)
+                    self.ik_solutions[contact_mode.name].append(solution)
 
         return sample_final_contact_modes
+    
+
+    def tabletop_trajectory_samples(self, bounding_box: np.ndarray, n_samples: int=10, samples_per_trajectory: Optional[int] = None):
+        """
+        Samples n_samples trajectories on the table top, constrained to the bounding box and checks kinematic feasibility.
+        In:
+            bounding_box: np.ndarray (2,2), the bounding box of the sample region
+            n_samples: int, the number of samples to generate
+        """
+
+        for i in range(n_samples):
+
+            for contact_mode in self.contact_modes:
+                start_pose = self.sample_tabletop_pose(bounding_box, contact_mode)
+                goal_pose = self.sample_tabletop_pose(bounding_box, contact_mode)
+                trajectory_primitive = TrajectoryPrimitive('TO_GOAL', contact_mode, start_pose, self.config, goal_pose, config_overwrite={'num_steps': samples_per_trajectory} if samples_per_trajectory is not None else {})
+                self.trajectory_primitives[contact_mode.name].primitives.append(trajectory_primitive)
+                solution = self.ik_trajectory(trajectory_primitive.trajectory, contact_mode=contact_mode)
+                self.ik_solutions[contact_mode.name].append(solution)
+            
+
+    def sample_tabletop_pose(self, bounding_box, contact_mode: ContactMode):
+        """
+        Samples a random pose on the tabletop.
+        """
+        x = random.uniform(bounding_box[0, 0], bounding_box[0, 1])
+        y = random.uniform(bounding_box[1, 0], bounding_box[1, 1])
+        z = 0.15
+
+        # random upright rotation matrix
+        yaw = random.uniform(-np.pi, np.pi)
+        return RigidTransform(RollPitchYaw(0, 0, yaw), [x, y, z]).multiply(RigidTransform(contact_mode.default_pose.rotation(), [0, 0, 0]))
 
     
     def ik_trajectory(self,

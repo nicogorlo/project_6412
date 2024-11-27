@@ -98,10 +98,10 @@ def visualise_trajectory_poses(visualizer: MeshcatVisualizer, poses: list[RigidT
         )
 
 
-def visualize_sample_trajectories(plant: MultibodyPlant, plant_context: Context, root_diagram: Diagram, root_context: Context, contact_mode: ContactMode, simulator: Simulator, visualizer: MeshcatVisualizer):
+def visualize_sample_trajectories(plant: MultibodyPlant, plant_context: Context, root_diagram: Diagram, root_context: Context, contact_mode: ContactMode, planner: GCSPlanner, simulator: Simulator, visualizer: MeshcatVisualizer):
     
 
-    for tp_traj, solutions in zip(contact_mode.trajectory_primitives, contact_mode.ik_solutions):
+    for tp_traj, solutions in zip(planner.trajectory_primitives[contact_mode.name], planner.ik_solutions[contact_mode.name]):
 
         visualise_trajectory_poses(visualizer, tp_traj.trajectory)
             
