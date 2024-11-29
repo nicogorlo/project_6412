@@ -137,7 +137,31 @@ def rrt_multi_goal(start, goals, params):
 
 ''' Convex set generation:
 
+Args:
+    mode_samples (per mode): dict[str, list[TrajectoryPrimitive]]
+    ik_solutions: dict[str, list[Optional[np.ndarray]]] # None if invalid IK solution else IK solution (1x24)
+    -- parse:
+    trajs = list[list[(pose, ik_solutions)]]
+
+    save data dict[str, list[(trajectory, ik_solutions)]] (saved as pkl) ik_solution 24 dim
 '''
+
+def parse_traj_primitives(mode_samples, ik_solutions):
+
+    for mode, traj_primitives in mode_samples.items():
+        assert len(traj_primitives) == len(ik_solutions[mode])
+        for i in range(len(traj_primitives)):
+            traj = traj_primitives[i].trajectory
+            assert len(traj) == len(ik_solutions[mode][i])
+            
+
+        ik_solution = ik_solutions[mode]
+        traj = primitive.trajectory
+        assert len(ik_solution) == len(traj)
+
+        traj = traj_primitives[mode]
+        trajs.append([(pose, ik_solutions[mode][i]) for i, pose in enumerate(traj.poses)])
+    return trajs
 
 def in_hull(p, hull):
     """
