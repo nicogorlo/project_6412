@@ -12,13 +12,59 @@ from matplotlib.patches import Polygon
 import copy
 import pickle
 import types
-import jax.numpy as jnp
-from jax import jit
+from joblib import Parallel, delayed
 
+## the slow step - could be parallelised?
 def in_hull(points, equations):
     return np.any(np.all(np.add(np.dot(points, equations[:,:-1].T), equations[:,-1]) <= 1e-12, axis=1))
 
-in_hull_jit = jit(in_hull)
+def in_hull_parallel(points, equations, tol=1e-12, n_jobs=-1):
+    """
+    Check if any point lies inside the convex hull defined by the equations using parallel processing.
+
+    Parameters:
+    points (np.ndarray): Array of points to check, shape (N, D).
+    equations (np.ndarray): Array of convex hull equations, shape (M, D+1).
+    tol (float): Tolerance for the inequality check.
+    n_jobs (int): Number of parallel jobs. Default is -1 (use all available cores).
+
+    Returns:
+    bool: True if any point lies inside the convex hull, False otherwise.
+    """
+    def check_point(point):
+        return np.all(np.dot(point, equations[:, :-1].T) + equations[:, -1] <= tol)
+
+    results = Parallel(n_jobs=n_jobs)(delayed(check_point)(point) for point in points)
+    return np.any(results)
+
+def in_hull_parallel_batch(points, equations, tol=1e-12, n_jobs=-1, batch_size=100):
+    """
+    Check if any point lies inside the convex hull defined by the equations using parallel processing with batch support.
+
+    Parameters:
+    points (np.ndarray): Array of points to check, shape (N, D).
+    equations (np.ndarray): Array of convex hull equations, shape (M, D+1).
+    tol (float): Tolerance for the inequality check.
+    n_jobs (int): Number of parallel jobs. Default is -1 (use all available cores).
+    batch_size (int): Number of points to process in each batch.
+
+    Returns:
+    bool: True if any point lies inside the convex hull, False otherwise.
+    """
+    def process_batch(batch):
+        return np.any(
+            np.all(np.dot(batch, equations[:, :-1].T) + equations[:, -1] <= tol, axis=1)
+        )
+    
+    # Split points into batches
+    batches = [points[i:i+batch_size] for i in range(0, len(points), batch_size)]
+
+    # Parallel processing of batches
+    results = Parallel(n_jobs=n_jobs)(
+        delayed(process_batch)(batch) for batch in batches
+    )
+    
+    return np.any(results)
 
 #### define a node struct consisting of [set, points in the set, node indx]
 class Node():
@@ -69,20 +115,8 @@ class Node():
         # vertex_points = self.set.points[self.set.vertices]
         # print(f'Point reduction: {len(self.points)} -> {len(vertex_points)}')
         # return (Delaunay(vertex_points, qhull_options='QJ').find_simplex(item) >= 0).any()
-        # return self._contains(item)
         return self.t_contains(item, 1e-12)
     
-    def _contains(self, item, tol=1e-12):
-        ''' Faster contains operation via linear programming:
-
-        
-        '''
-        hull = self.set
-        # in_hull =np.any(np.all(hull.equations[:,:-1] @ item.T + np.repeat(hull.equations[:,-1][None,:], len(item), axis=0).T <= tol, 0))
-        in_hull  = np.any(np.all(np.add(np.dot(item, hull.equations[:,:-1].T), hull.equations[:,-1]) <= tol, axis=1))
-        return in_hull
-    
-
     def t_contains(self, item, tol):
         ''' Faster contains operation via linear programming:
         Args:
@@ -90,7 +124,7 @@ class Node():
             tol: float tolerance
         '''
         hull = self.set
-        return in_hull(item, hull.equations)
+        return in_hull_parallel_batch(item, hull.equations)
     
     def convert_to_drake(self):
         ''' Converts the scipy convex hull objet to a drake object
@@ -180,7 +214,7 @@ class SetGen():
         qt[:, 3:] = qt[:, 3:] / np.linalg.norm(qt[:, 3:], axis=1)[:, None]
         return qt
     
-    def deshatter(self, max_iterations = 2000, density_threshold = 5, k=3):
+    def deshatter(self, max_iterations = 2000, density_threshold = 30, k=3):
         ''' deshatter the nodes by merging them together
         '''
 
@@ -240,7 +274,7 @@ class SetGen():
                     # check if the density of the merged node is above the threshold
                     print("Checking for density")
                     if merged._density() > density_threshold:
-                        print("Density threshold exceeded, merging nodes")
+                        print("Density threshold exceeded, merging nodes: ", merged._density())
                         # remove the two nodes and add the merged node
                         # give the merged node an index:
                         merged.node_indx = self.node_indx
