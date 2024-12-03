@@ -80,9 +80,33 @@ class Node():
         self.node_indx = node_indx
         self.center = np.mean(points, axis=0)
         self.density = None
+        self.spatial_density = None
+        self.orientation_density = None
+
+        self.spatial_set = None
+        self.orientation_set = None
 
     def __call__(self):
         pass
+
+    def gen_set(self):
+        ''' generate the convex hull set - if there are less than 8 points, linearly interpolate between them:
+        '''
+        if len(self.points) < 8:
+            # randomly sample 8 - len(points) points from the first two points of convex hull (just for utility):
+            t = np.linspace(0, 1, 8 - len(self.points)) 
+            qt = self.points[0] + t[:, None] * (self.points[1] - self.points[0])
+            # normalise the quaternion portion of the points:
+            qt[:, 3:] = qt[:, 3:] / np.linalg.norm(qt[:, 3:], axis=1)[:, None]
+            # combine qt with the original points:
+            qt = np.concatenate([qt, self.points], axis=0)
+            self.set = ConvexHull(qt, qhull_options='QJ')
+            self.spatial_set = ConvexHull(qt[:, :3], qhull_options='QJ') # define the spatial set for density computation
+            self.orientation_set = ConvexHull(qt[:, 3:], qhull_options='QJ') # define the orientation set for density computation
+        else:
+            self.set = ConvexHull(self.points, qhull_options='QJ')
+            self.spatial_set = ConvexHull(self.points[:, :3], qhull_options='QJ')
+            self.orientation_set = ConvexHull(self.points[:, 3:], qhull_options='QJ')
 
     def __str__(self):
         return f"Node {self.node_indx} with {len(self.points)} points"
@@ -123,8 +147,12 @@ class Node():
             item: np.array of shape (n, d) where n is the number of points and d is the dimension of the points
             tol: float tolerance
         '''
-        hull = self.set
-        return in_hull_parallel_batch(item, hull.equations)
+        if self.set is None:
+            self.gen_set()
+        if len(self.points) < 1000:
+            return in_hull(self.points, self.set.equations)
+        else:
+            return in_hull_parallel_batch(item, self.set.equations)
     
     def convert_to_drake(self):
         ''' Converts the scipy convex hull objet to a drake object
@@ -133,17 +161,41 @@ class Node():
 
     def __or__(self, other):
         combined_set = np.concatenate([self.points, other.points], axis=0)
-        combined_hull = ConvexHull(combined_set, qhull_options='QJ')
-        return Node(combined_hull, combined_set, None) # return a new node object with an empty node_indx
+        # combined_hull = ConvexHull(combined_set, qhull_options='QJ')
+        return Node(None, combined_set, None) # return a new node object with an empty node_indx and set object
     
     def volume(self):
+        if self.set is None:
+            self.gen_set()
         return self.set.volume
+    
+    def spatial_volume(self):
+        if self.spatial_set is None:
+            self.gen_set()
+        return self.spatial_set.volume
+    
+    def orientation_volume(self):
+        if self.orientation_set is None:
+            self.gen_set()
+        return self.orientation_set.volume
     
     def _density(self):
         if self.density is not None:
             return self.density
         self.density = len(self.points) / self.volume()
         return self.density
+    
+    def _spatial_density(self):
+        if self.spatial_density is not None:
+            return self.spatial_density
+        self.spatial_density = len(self.points) / self.spatial_volume()
+        return self.spatial_density
+    
+    def _orientation_density(self):
+        if self.orientation_density is not None:
+            return self.orientation_density
+        self.orientation_density = len(self.points) / self.orientation_volume()
+        return self.orientation_density
     
     def contains_singularity(self):
         ''' check if the node contains a singularity
@@ -152,7 +204,148 @@ class Node():
             - returns True if the origin is in the convex hull, False otherwise
         '''
         quat_points = self.points[:, 3:]
+        return False
         return Delaunay(quat_points, qhull_options='QJ').find_simplex(np.array([[0, 0, 0, 0]])) >= 0
+
+    def compress(self, max_iterations = 1000, vol_threshold = 0.9, points_threshold = 100, batch_size=5):
+        ''' compress the points in the node by removing the points that don't contribute to the convex hull volume:
+        Desc:
+            - compute the convex hull of the points
+            - compute the initial volume of the convex hull
+            - sample a batch of random points from the convex hull
+            - compute the volume of the hull that would result in the removal of the point
+            - remove the point that results in the smallest volume if below a specific threshold
+        '''
+        
+        if len(self.points) < points_threshold:
+            return
+        else:
+            init_vol= self.volume()
+            print(f"Running set compression: {len(self.points)} points")
+            for step in range(max_iterations):
+                # shuffle the points
+                np.random.shuffle(self.points)
+                # track the point that results in the smallest volume
+                max_vol = 0
+                max_point = None
+                # compute the volume of the hull without the point, restrict to batch size
+                for i in range(batch_size):
+                    test_points = np.delete(self.points, i, axis=0)
+                    test_hull = ConvexHull(test_points, qhull_options='QJ')
+                    test_vol = test_hull.volume
+                    if test_vol > max_vol:
+                        max_vol = test_vol
+                        max_point = i
+
+                if max_vol/init_vol > vol_threshold:
+                    # remove the point
+                    print(f"Removing point: {self.points[max_point]}")
+                    self.points = np.delete(self.points, max_point, axis=0)
+                    # recompute the hull
+                    self.set = ConvexHull(self.points, qhull_options='QJ')
+                    # recomputes the object:
+                    self.center = np.mean(self.points, axis=0)
+                    self.density = None
+
+                # check if the volume is above the threshold
+                if max_vol/ init_vol < vol_threshold:
+                    break
+                # check if the nuber of points is below the threshold
+                if len(self.points) < points_threshold:
+                    break
+
+            print(f"Final number of points: {len(self.points)}", f"Final volume ratio: {max_vol/ init_vol}")
+
+    def ransac_compress(self, max_iterations = 1000, vol_threshold = 0.9, points_threshold = 300):
+        vertices = self.set.points[self.set.vertices]
+        if len(vertices) <= points_threshold:
+            return
+        print(f"Running set compression: {len(self.points)} points")
+        max_vol = 0
+        max_points = None
+        max_set = None
+        init_vol = self.volume()
+        solved = False
+        for s in range(max_iterations):
+            # sample a random set of points
+            sample_points = vertices[np.random.choice(len(vertices), points_threshold, replace=False)]
+            # compute the convex hull of the sample points
+            sample_hull = ConvexHull(sample_points, qhull_options='QJ')
+            # compute the sample hull volume:
+            volume = sample_hull.volume
+            if volume > max_vol:
+                max_vol = volume
+                max_points = sample_points
+                max_set = sample_hull
+            if volume/init_vol > vol_threshold:
+                break
+        if max_vol/init_vol < vol_threshold:
+            print('Failure to compress, volume ratio: ', max_vol/init_vol)
+            return
+        else:
+            # compute members of the compressed hull:
+            in_compressed_hull = np.all(np.add(np.dot(self.points, max_set.equations[:,:-1].T), max_set.equations[:,-1]) <= 1e-12, axis=1)
+            self.points = self.points[in_compressed_hull]
+
+            self.points = max_points
+            self.set = max_set
+            self.center = np.mean(self.points, axis=0)
+            self.density = None
+            print(f"Final number of points: {len(self.points)}", f"Final volume ratio: {max_vol/ init_vol}")
+
+    def parallel_ransac_compress(self, max_iterations = 1000, vol_threshold = 0.9, points_threshold = 300):
+        # generate the set if there is none
+        # remove duplicate points:
+        self.points = np.unique(np.round(self.points, decimals=10), axis=0) # roundin avoids precision issues
+        if self.set is None:
+            self.gen_set()
+        vertices = self.set.points[self.set.vertices]
+        if len(vertices) <= points_threshold:
+            return
+        print(f"Running set compression: {len(self.points)} points")
+        init_vol = self.volume()
+
+        def evaluate_sample():
+            # Sample a random set of points
+            sample_points = vertices[np.random.choice(len(vertices), points_threshold, replace=False)]
+            # Compute the convex hull of the sample points
+            sample_hull = ConvexHull(sample_points, qhull_options='QJ')
+            # Return the sample hull and its volume
+            return sample_hull, sample_hull.volume, sample_points
+
+        # Run RANSAC iterations in parallel
+        results = Parallel(n_jobs=-1)(delayed(evaluate_sample)() for _ in range(max_iterations))
+
+        # Find the best result
+        max_vol, max_set, max_points = 0, None, None
+        for sample_hull, volume, sample_points in results:
+            if volume > max_vol:
+                max_vol = volume
+                max_set = sample_hull
+                max_points = sample_points
+            if max_vol / init_vol > vol_threshold:
+                break
+
+        if max_vol / init_vol < vol_threshold:
+            print('Failure to compress, volume ratio: ', max_vol / init_vol)
+            return
+        else:
+            # Compute members of the compressed hull
+            in_compressed_hull = np.all(
+                np.add(np.dot(self.points, max_set.equations[:, :-1].T), max_set.equations[:, -1]) <= 1e-12,
+                axis=1
+            )
+            self.points = self.points[in_compressed_hull]
+
+            self.points = max_points
+            self.set = max_set
+            self.center = np.mean(self.points, axis=0)
+            self.density = None
+            print(f"Final number of points: {len(self.points)}", f"Final volume ratio: {max_vol / init_vol}")
+            
+
+                
+
         
 
 class SetGen():
@@ -185,9 +378,9 @@ class SetGen():
                     self.negative_points.append(X2)
                     continue
                 segment_points = np.array([X1, X2])
-                set_points = self.linear_interpolation(segment_points)
-                E = ConvexHull(set_points, qhull_options='QJ')
-                node = Node(E, set_points, self.node_indx)
+                # set_points = self.linear_interpolation(segment_points)
+                # E = ConvexHull(set_points, qhull_options='QJ')
+                node = Node(None, segment_points, self.node_indx)
                 self.nodes.append(node)
                 self.node_indx += 1
         print('Initial number of nodes: ', len(self.nodes))
@@ -198,6 +391,12 @@ class SetGen():
         '''
         quat = X.rotation().ToQuaternion()
         return np.concatenate([X.translation(), np.array([quat.w(), quat.x(), quat.y(), quat.z()])])
+    
+    def X_to_4D(self, X):
+        ''' convert the SE(2) RigidBody pose to 4D quaternion (q1, q2, q3, q4)
+        '''
+        quat = X.rotation().ToQuaternion()
+        return np.array([quat.w(), quat.x(), quat.y(), quat.z()])
     
     def linear_interpolation(self, segment, points = 8):
         ''' generate the initial sets from the nodes
@@ -214,7 +413,7 @@ class SetGen():
         qt[:, 3:] = qt[:, 3:] / np.linalg.norm(qt[:, 3:], axis=1)[:, None]
         return qt
     
-    def deshatter(self, max_iterations = 2000, density_threshold = 30, k=3):
+    def deshatter(self, max_iterations = 5000, spatial_density_threshold = 0, orientation_density_threshold=0, k=10):
         ''' deshatter the nodes by merging them together
         '''
 
@@ -250,22 +449,19 @@ class SetGen():
                         print("Already checked this pair" + '-'*50)
                         continue
 
-                    # check if it's the first merge:
-                    if test_node.node_indx < initial_node_count:
-                        test_red_node_points = np.array([test_node.points[0], test_node.points[-1]])
-                        test_red_node = Node(None, test_red_node_points, None)
-                        merged = node | test_red_node
-                    else:
-                        merged = node | test_node
+                    merged = node | test_node # only compute the convex hull when needed
+
+                    print('Checking for compression:')
+                    merged.parallel_ransac_compress()
 
                     check_pairs.append((node.node_indx, test_node.node_indx))
                     check_pairs.append((test_node.node_indx, node.node_indx))
                     
                     # check if the merged node contains a singularity
-                    print("Checking for singularity")
-                    if merged.contains_singularity():
-                        print("Singularity detected" + '-'*50)
-                        continue
+                    # print("Checking for singularity")
+                    # if merged.contains_singularity():
+                    #     print("Singularity detected" + '-'*50)
+                    #     continue
                     # check if the merged node contains any negative points
                     print("Checking for negative points")
                     if np.array(self.negative_points) in merged:
@@ -273,8 +469,8 @@ class SetGen():
                         continue
                     # check if the density of the merged node is above the threshold
                     print("Checking for density")
-                    if merged._density() > density_threshold:
-                        print("Density threshold exceeded, merging nodes: ", merged._density())
+                    if merged._spatial_density() > spatial_density_threshold and merged._orientation_density() > orientation_density_threshold:
+                        print("Density threshold exceeded, merging nodes: ", f'spatial: {merged._spatial_density()}, orientation: {merged._orientation_density()}')
                         # remove the two nodes and add the merged node
                         # give the merged node an index:
                         merged.node_indx = self.node_indx
@@ -294,7 +490,7 @@ class SetGen():
         print("Final number of nodes: ", len(self.nodes))
 def main():
     # load in the data:
-    with open("../output/trajectories_tabletop.pkl", "rb") as f:
+    with open("./output/trajectories_primitives.pkl", "rb") as f:
         out_structure = pickle.load(f)
     
     print(len(out_structure))
@@ -303,6 +499,20 @@ def main():
     set_gen = SetGen()
     set_gen.construct_initial_sets(out_structure['X_POS'])
     set_gen.deshatter()
+    with open(f"./output/set_gen_X_POS.pkl", "wb") as f:
+        pickle.dump(set_gen, f)
+
+    print('-'*50)
+    # compute some stats about the nodes:
+    for node in set_gen.nodes:
+        print(node)
+        print('Volume: ', node.volume())
+        print('Density: ', node._density())
+        print('Spatial Density: ', node._spatial_density())
+        print('Orientation Density: ', node._orientation_density())
+
+        
+
 
 if __name__ == "__main__":
     main()
