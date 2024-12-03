@@ -14,6 +14,12 @@ import pickle
 import types
 from joblib import Parallel, delayed
 
+'''
+TODO:
+- Implement the convex hull compression algorithm for reduced dimensionality:
+
+'''
+
 ## the slow step - could be parallelised?
 def in_hull(points, equations):
     return np.any(np.all(np.add(np.dot(points, equations[:,:-1].T), equations[:,-1]) <= 1e-12, axis=1))
