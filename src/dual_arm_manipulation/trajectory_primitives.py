@@ -10,6 +10,11 @@ from mergedeep import merge
 from dual_arm_manipulation.contact_mode import ContactMode
 from dual_arm_manipulation.utils import pose_vec_to_transform
 
+from typing import Optional
+import numpy as np
+from scipy.interpolate import interp1d
+
+
 kDefaultConfig = {
     'primitives': ['YAW_90_cw', 'YAW_90_ccw', 'ROLL_90_cw', 'ROLL_90_ccw', 'PITCH_90_cw', 'PITCH_90_ccw'],
     'goal_pose': [0.0, 0.0, 0.4],
@@ -35,8 +40,76 @@ class TrajectoryPrimitives:
         self.primitives = []
 
     def load_primitives(self):
-        for primitive in self.config['primitives']:
-            self.primitives.append(TrajectoryPrimitive(primitive, self.contact_mode, self.start_pose, self.config))
+        for primitive_name in self.config['primitives']:
+            primitive = TrajectoryPrimitive(primitive_name, self.contact_mode, self.start_pose, None, self.config)
+            self.primitives.append(primitive)
+            if self.config.get('augment', False):
+                trajs_augmented = self.generate_perturbed_trajectories(primitive.trajectory, primitive_name, self.config['n_rand_augmentations'])
+                print(f"Augmented {len(trajs_augmented)} trajectories for primitive: {primitive_name}")
+                self.primitives.extend(trajs_augmented)
+
+    def generate_perturbed_trajectories(self, original_trajectory, primitive_name: str, N: int = 10):
+        """
+        Generates N perturbed trajectories from an original trajectory by applying
+        random smooth perturbations in 6DoF space.
+
+        Args:
+            original_trajectory (TrajectoryPrimitive): The original trajectory.
+            N (int): Number of perturbed trajectories to generate.
+            max_translation (float): Maximum translation perturbation magnitude.
+            max_rotation (float): Maximum rotation perturbation magnitude in radians.
+
+        Returns:
+            list[TrajectoryPrimitive]: A list containing N perturbed trajectories.
+        """
+        N_samples = []
+        num_frames = len(original_trajectory)
+        time_steps = np.linspace(0, 1, num_frames)
+        
+        max_translation = self.config.get('augment_max_translation', 0.1)
+        max_rotation = self.config.get('augment_max_rotation', 0.1)
+
+        for sample_idx in range(N):
+
+            np.random.seed()
+            
+            # number of key points for interpolation (adjust for smoothness)
+            num_key_points = max(2, num_frames // 10)
+            key_times = np.linspace(0, 1, num_key_points)
+            
+            # Generate random perturbations at key points
+            random_translations = np.random.uniform(
+                -max_translation, max_translation, size=(num_key_points, 3))
+            random_rotations = np.random.uniform(
+                -max_rotation, max_rotation, size=(num_key_points, 3))
+            
+            # Interpolate perturbations for smoothness
+            delta_translation_func = interp1d(
+                key_times, random_translations, axis=0, kind='cubic', fill_value="extrapolate")
+            delta_rotation_func = interp1d(
+                key_times, random_rotations, axis=0, kind='cubic', fill_value="extrapolate")
+            
+            delta_translations = delta_translation_func(time_steps)
+            delta_rotations = delta_rotation_func(time_steps)
+            
+            perturbed_trajectory = []
+            for i in range(num_frames):
+                orig_transform = original_trajectory[i]
+                delta_translation = delta_translations[i]
+                delta_rotation = delta_rotations[i]
+                
+                perturb_transform = RigidTransform(
+                    RollPitchYaw(delta_rotation), delta_translation)
+                
+                new_transform = orig_transform.multiply(perturb_transform)
+                perturbed_trajectory.append(new_transform)
+
+            perturbed_trajectory_sample = TrajectoryPrimitive(f'PERTURBED_{primitive_name}_{sample_idx}', self.contact_mode, self.start_pose, trajectory=perturbed_trajectory, config=self.config)
+            
+            N_samples.append(perturbed_trajectory_sample)
+        
+        return N_samples
+
 
     def __iter__(self):
         return iter(self.primitives)
@@ -57,6 +130,7 @@ class TrajectoryPrimitive:
                  primitive_name: str, 
                  contact_mode: ContactMode, 
                  start_pose: RigidTransform, 
+                 trajectory: Optional[list[RigidTransform]] = None,
                  config: dict = kDefaultConfig,
                  goal_pose: RigidTransform = RigidTransform(),
                  config_overwrite: dict = {}):
@@ -67,11 +141,19 @@ class TrajectoryPrimitive:
         self.duration = 0.0
         self.args = merge(config, config_overwrite)
         self.goal_pose = goal_pose
-        self.trajectory: list[RigidTransform] = self._create_primitive()
+        self.trajectory: list[RigidTransform] = self._create_primitive(trajectory)
 
-    def _create_primitive(self):
-        trajectory = []
-
+    def _create_primitive(self, trajectory: Optional[list[RigidTransform]] = None):
+        """
+        Create a motion primitive trajectory.
+        
+        Args:
+            trajectory (list[RigidTransform]): The trajector
+        Returns:
+            list[RigidTransform]: The trajectory of the primitive
+        """
+        if trajectory == None:
+            trajectory = []
         if self.primitive_name == 'YAW_90_cw':
             # Rotate by -pi/2 about the z-axis (clockwise yaw)
             delta_angle = -np.pi / 2
@@ -150,7 +232,7 @@ class TrajectoryPrimitive:
                 pose = RigidTransform(rotation, translation)
                 trajectory.append(pose)
 
-        elif self.primitive_name == 'TO_GOAL': 
+        elif self.primitive_name.startswith('TO_GOAL'): 
             num_steps = self.args.get('num_steps', 10)
             for i in range(1, num_steps + 1):
                 fraction = i / num_steps
@@ -162,9 +244,25 @@ class TrajectoryPrimitive:
                 rotation = RotationMatrix(RollPitchYaw(rpy))
                 pose = RigidTransform(rotation, translation)
                 trajectory.append(pose)
+
+        elif trajectory is not None:
+            trajectory = trajectory
+
         else:
             raise ValueError(f"Unknown primitive_name: {self.primitive_name}")
+        
         return trajectory
-    
+
+
     def __iter__(self):
         return iter(self.trajectory)
+    
+    def __len__(self):
+        return len(self.trajectory)
+    
+    def __getitem__(self, idx):
+        return self.trajectory[idx]
+    
+    def __setitem__(self, idx, value):
+        self.trajectory[idx] = value
+        return self.trajectory[idx]

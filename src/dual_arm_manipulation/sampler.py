@@ -23,7 +23,8 @@ import yaml
 import logging
 import random
 from mergedeep import merge
-
+from tqdm import tqdm
+import pickle
 
 class AbstractPlanner(ABC):
     def __init__(self, plant: MultibodyPlant, plant_context: LeafContext, simulate: bool = False):
@@ -60,14 +61,14 @@ class GCSPlanner(AbstractPlanner):
         self.contact_modes = contact_modes
 
         self.trajectory_primitives: dict[str,TrajectoryPrimitives] = {mode.name: TrajectoryPrimitives(mode.default_pose, mode, self.config) for mode in contact_modes}
-        self.ik_solutions: dict[str,list[Optional[np.ndarray]]] = {mode.name: [] for mode in contact_modes}
+        self.ik_solutions: dict[str,dict[str, np.ndarray[Optional[RigidTransform]]]] = {mode.name: {} for mode in contact_modes}
 
     def plan(self):
         print("Planning")
         return
 
     
-    def get_traj_primitives(self) -> list[Optional[np.ndarray]]:
+    def get_traj_primitives(self) -> None:
         """
         Returns the trajectory primitives. These are sample trajectories that can be used to build convex sets.
 
@@ -75,31 +76,33 @@ class GCSPlanner(AbstractPlanner):
         
         """
 
-        for contact_mode in self.contact_modes:
+        for contact_mode in tqdm(self.contact_modes, "[Trajectory Primitives] Contact Mode Iteration"):
 
             default_pose = contact_mode.default_pose
 
-            trajectory_primitives = TrajectoryPrimitives(default_pose, contact_mode, self.config)
-            trajectory_primitives.load_primitives()
+            if self.trajectory_primitives[contact_mode.name] is None:
+                self.trajectory_primitives[contact_mode.name] = TrajectoryPrimitives(default_pose, contact_mode, self.config, {"augment": True})
+            self.trajectory_primitives[contact_mode.name].load_primitives()
 
-            self.trajectory_primitives[contact_mode.name] = trajectory_primitives 
+            solutions = {}
 
-            solutions = []
+            for primitive in self.trajectory_primitives[contact_mode.name]:
 
-            for primitive in trajectory_primitives:
+                if self.ik_solutions[contact_mode.name].get(primitive.primitive_name) is not None:
+                    continue
 
                 solution = self.ik_trajectory(primitive.trajectory, contact_mode=contact_mode)
 
-                solutions.append(solution)
+                solutions[primitive.primitive_name] = solution
 
-            self.ik_solutions[contact_mode.name] = solutions
+            self.ik_solutions[contact_mode.name].update(solutions)
 
 
     def get_goal_conditioned_tabletop_configurations(self):
 
         sample_final_contact_modes = {}
 
-        for contact_mode in self.contact_modes:
+        for contact_mode in tqdm(self.contact_modes, "[Goal Conditioned Tabletop Configurations] Contact Mode Iteration"):
 
             contact_mode_name = contact_mode.name
             # determine if IK solution exists for contact mode in goal configuration
@@ -134,12 +137,23 @@ class GCSPlanner(AbstractPlanner):
 
                 sample_final_contact_modes[contact_mode_name] = tabletop_sample_poses
 
-                for tabletop_pose, solution in zip(tabletop_sample_poses, tabletop_sample_solutions):
-                    trajectory_primitive = TrajectoryPrimitive('TO_GOAL', contact_mode, tabletop_pose, self.config, self.goal_pose)
+                for idx, (tabletop_pose, solution) in enumerate(zip(tabletop_sample_poses, tabletop_sample_solutions)):
+                    trajectory_primitive = TrajectoryPrimitive(f'TO_GOAL_{idx}', contact_mode, tabletop_pose, None, self.config, self.goal_pose)
 
+                    # direct trajectories
                     self.trajectory_primitives[contact_mode.name].primitives.append(trajectory_primitive)
                     solution = self.ik_trajectory(trajectory_primitive.trajectory, contact_mode=contact_mode)
-                    self.ik_solutions[contact_mode.name].append(solution)
+                    self.ik_solutions[contact_mode.name][trajectory_primitive.primitive_name] = solution
+
+                    # random perturbations around trajectories
+                    if self.config.get('augment', False):
+                        randomized_samples = self.trajectory_primitives[contact_mode_name].generate_perturbed_trajectories(trajectory_primitive, trajectory_primitive.primitive_name, 3)
+                        self.trajectory_primitives[contact_mode_name].primitives.extend(randomized_samples)
+
+                        for sample in randomized_samples:
+                            solution = self.ik_trajectory(sample.trajectory, contact_mode=contact_mode)
+                            self.ik_solutions[contact_mode.name][sample.primitive_name] = solution
+                
 
         return sample_final_contact_modes
     
@@ -152,15 +166,15 @@ class GCSPlanner(AbstractPlanner):
             n_samples: int, the number of samples to generate
         """
 
-        for i in range(n_samples):
+        for _ in tqdm(range(n_samples)):
 
             for contact_mode in self.contact_modes:
                 start_pose = self.sample_tabletop_pose(bounding_box, contact_mode)
                 goal_pose = self.sample_tabletop_pose(bounding_box, contact_mode)
-                trajectory_primitive = TrajectoryPrimitive('TO_GOAL', contact_mode, start_pose, self.config, goal_pose, config_overwrite={'num_steps': samples_per_trajectory} if samples_per_trajectory is not None else {})
+                trajectory_primitive = TrajectoryPrimitive('TO_GOAL', contact_mode, start_pose, None, self.config, goal_pose, config_overwrite={'num_steps': samples_per_trajectory} if samples_per_trajectory is not None else {})
                 self.trajectory_primitives[contact_mode.name].primitives.append(trajectory_primitive)
                 solution = self.ik_trajectory(trajectory_primitive.trajectory, contact_mode=contact_mode)
-                self.ik_solutions[contact_mode.name].append(solution)
+                self.ik_solutions[contact_mode.name][trajectory_primitive.primitive_name] = solution
             
 
     def sample_tabletop_pose(self, bounding_box, contact_mode: ContactMode):
@@ -184,7 +198,9 @@ class GCSPlanner(AbstractPlanner):
         """
 
         q_space_trajectory = []
-        print(len(q_space_trajectory))
+
+        if self.config["verbose"]:
+            print(len(q_space_trajectory))
         
         t = 0
         solutions = []
@@ -202,7 +218,8 @@ class GCSPlanner(AbstractPlanner):
             else:
                 solutions.append(None)
                 q_space_trajectory.append(None)
-                print("No solution found for the pose.")
+                if self.config["verbose"]:
+                    print("No solution found for the pose.")
                 n_invalid_solutions += 1
 
         return solutions
@@ -247,6 +264,7 @@ class GCSPlanner(AbstractPlanner):
         end_effector_frame_iiwa1 = self.plant.GetFrameByName("contact_body_iiwa1", iiwa1_model)
         end_effector_frame_iiwa2 = self.plant.GetFrameByName("contact_body_iiwa2", iiwa2_model)
         cube_frame = self.plant.GetFrameByName("cuboid_body", self.plant.GetModelInstanceByName("movable_cuboid"))
+
 
         # Add position and orientation constraints for iiwa_1
         ik_iiwa.AddPositionConstraint(
@@ -310,9 +328,24 @@ class GCSPlanner(AbstractPlanner):
         result_iiwa = Solve(ik_iiwa.prog())
         if result_iiwa.is_success():
             q_sol_iiwa = result_iiwa.GetSolution(ik_iiwa.q())
-            print("Solution found for iiwa:", q_sol_iiwa)
+            if self.config["verbose"]:
+                print("Solution found for iiwa:", q_sol_iiwa)
         else:
-            print("No solution found for iiwa.")
+            if self.config["verbose"]:
+                print("No solution found for iiwa.")
             return None
 
         return q_sol_iiwa
+    
+    def save_to_file(self, filename: str):
+        out_structure = {mode.name: [(primitive.trajectory, self.ik_solutions[mode.name][primitive.primitive_name]) for primitive in self.trajectory_primitives[mode.name].primitives] for mode in self.contact_modes}
+        with open(ROOT_DIR / "output" / "trajectories_full.pkl", "wb") as f:
+            pickle.dump(out_structure, f)
+
+    def load_from_file(self, filename: str):
+        with open(ROOT_DIR / "output" / filename, "rb") as f:
+            out_structure = pickle.load(f)
+            for mode in self.contact_modes:
+                for idx, (trajectory, solution) in enumerate(out_structure[mode.name]):
+                    self.trajectory_primitives[mode.name].primitives.append(TrajectoryPrimitive(f'LOADFROMSAVED_{idx}', mode, trajectory[0], trajectory, self.config, self.goal_pose))
+                    self.ik_solutions[mode.name][f'LOADFROMSAVED_{idx}'] = solution

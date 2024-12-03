@@ -12,6 +12,9 @@ from io import BytesIO
 from scipy.spatial.transform import Rotation as R
 from numpy.typing import ArrayLike
 
+from time import perf_counter_ns
+import logging
+
 
 def interpolate_6dof_poses(start_pose: np.ndarray, goal_pose: np.ndarray, n_steps: int):
     """
@@ -147,3 +150,27 @@ def rotation_matrix_from_vectors(v1: np.ndarray, v2: np.ndarray) -> RotationMatr
     rot_mat = RotationMatrix(rot_mat)
     
     return rot_mat
+
+
+class performance_measure:
+    """
+    A class that measures the execution time of a code block.
+    Usage:
+    with performance_measure("name of code block"):
+        # code block
+
+    Avoid usage with parallel or async code (not tested)
+    """
+
+    def __init__(self, name) -> None:
+        self.name = name
+
+    def __enter__(self):
+        self.start_time = perf_counter_ns()
+
+    def __exit__(self, *args):
+        self.end_time = perf_counter_ns()
+        self.duration = self.end_time - self.start_time
+
+        print(f"{self.name} - execution time: {(self.duration)/1000000:.2f} ms")
+        logging.info(f"{self.name} - execution time: {(self.duration)/1000000:.2f} ms")

@@ -79,7 +79,7 @@ from dual_arm_manipulation import ROOT_DIR
 from dual_arm_manipulation.environment import dual_arm_environment
 from dual_arm_manipulation.contact_mode import ContactMode
 from dual_arm_manipulation.trajectory_primitives import TrajectoryPrimitives, TrajectoryPrimitive
-from dual_arm_manipulation.planner import GCSPlanner
+from dual_arm_manipulation.sampler import GCSPlanner
 from dual_arm_manipulation.utils import interpolate_6dof_poses, get_free_faces, pose_vec_to_transform, rotation_matrix_from_vectors
 import yaml
 
@@ -100,12 +100,13 @@ def visualise_trajectory_poses(visualizer: MeshcatVisualizer, poses: list[RigidT
 
 def visualize_sample_trajectories(plant: MultibodyPlant, plant_context: Context, root_diagram: Diagram, root_context: Context, contact_mode: ContactMode, planner: GCSPlanner, simulator: Simulator, visualizer: MeshcatVisualizer):
     
+    for trajectory_sample in planner.trajectory_primitives[contact_mode.name]:
 
-    for tp_traj, solutions in zip(planner.trajectory_primitives[contact_mode.name], planner.ik_solutions[contact_mode.name]):
+        solution = planner.ik_solutions[contact_mode.name][trajectory_sample.primitive_name]
 
-        visualise_trajectory_poses(visualizer, tp_traj.trajectory)
+        visualise_trajectory_poses(visualizer, trajectory_sample.trajectory)
             
-        for i, (tp_pose, q) in enumerate(zip(tp_traj, solutions)):
+        for i, (tp_pose, q) in enumerate(zip(trajectory_sample, solution)):
             if q is None:
                 print(f"Skipping {i}, no solution here.")
                 continue
@@ -113,4 +114,4 @@ def visualize_sample_trajectories(plant: MultibodyPlant, plant_context: Context,
             plant.SetPositions(plant_context, q)
             root_diagram.ForcedPublish(root_context)
 
-            time.sleep(0.05)
+            time.sleep(0.005)

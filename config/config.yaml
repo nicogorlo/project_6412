@@ -7,6 +7,12 @@ setup:
 
 planner:
   visualize: true
+  verbose: false
+
+  augment: true
+  n_rand_augmentations: 5
+  augment_max_translation: 0.1
+  augment_max_rotation: 0.1
 
   contact_modes: 
     X_POS: [[0.15, 0, 0], [-0.15, 0, 0]]
@@ -17,11 +23,11 @@ planner:
     Z_NEG: [[0, 0, -0.15], [0, 0, 0.15]]
 
   tabletop_configurations:
-    n_rotations: 4 # Number of rotations per side. n_samples = n_rotations * 6
+    n_rotations: 5 # Number of rotations per side. n_samples = n_rotations * 6
 
   primitives: ['YAW_90_cw', 'YAW_90_ccw', 'ROLL_90_cw', 'ROLL_90_ccw'] # ['YAW_90_cw', 'YAW_90_ccw', 'ROLL_90_cw', 'ROLL_90_ccw', 'PITCH_90_cw', 'PITCH_90_ccw', 'TO_GOAL']
 
-  lift_height: 0.4
+  lift_height: 0.3
   num_steps: 50
   num_steps_lift: 50
   num_steps_rotate: 50
