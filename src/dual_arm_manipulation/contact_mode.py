@@ -18,8 +18,8 @@ class ContactMode:
     def __init__(self, name: str = 'X_POS', config: dict = {}):
         assert name in VALID_CONTACT_MODES, f"Invalid contact mode: {name}"
         self.name = name
-        if 'planner' in config:
-            self.contact_positions = config['planner']['contact_modes'][name]
+        if 'sampler' in config:
+            self.contact_positions = config['sampler']['contact_modes'][name]
         else:
             self.contact_positions = [[0.15, 0, 0], [-0.15, 0, 0]] # TODO: define kDefaultConfig
         self.config = config
@@ -29,7 +29,7 @@ class ContactMode:
     def get_free_faces(self):
         for axis in ['X', 'Y', 'Z']:
             if self.name.startswith(axis):
-                return {name: free_contact_mode[0] for name, free_contact_mode in self.config['planner']['contact_modes'].items() if not name.startswith(axis)}
+                return {name: free_contact_mode[0] for name, free_contact_mode in self.config['sampler']['contact_modes'].items() if not name.startswith(axis)}
         
     def get_contact_frame_pos(self, plant):
         if self.name == 'X_POS':

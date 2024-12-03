@@ -11,6 +11,7 @@ from PIL import Image
 from io import BytesIO
 from scipy.spatial.transform import Rotation as R
 from numpy.typing import ArrayLike
+from typing import Tuple
 
 from time import perf_counter_ns
 import logging
@@ -150,6 +151,22 @@ def rotation_matrix_from_vectors(v1: np.ndarray, v2: np.ndarray) -> RotationMatr
     rot_mat = RotationMatrix(rot_mat)
     
     return rot_mat
+
+def quaternion_to_cos_sin_yaw(qw: float, qx: float, qy: float , qz: float) -> Tuple[float, float]:
+    """
+    Computes cos(yaw) and sin(yaw) directly from quaternion components.
+
+    Parameters:
+        qw, qx, qy, qz (float): Components of the quaternion.
+
+    Returns:
+        cos_yaw, sin_yaw (float): The cosine and sine of the yaw angle.
+    """
+    cos_yaw = 1 - 2 * (qy**2 + qz**2)
+    
+    sin_yaw = 2 * (qw * qz + qx * qy)
+    
+    return cos_yaw, sin_yaw
 
 
 class performance_measure:

@@ -8,7 +8,7 @@ import numpy as np
 
 from mergedeep import merge
 from dual_arm_manipulation.contact_mode import ContactMode
-from dual_arm_manipulation.utils import pose_vec_to_transform
+from dual_arm_manipulation.utils import pose_vec_to_transform, quaternion_to_cos_sin_yaw
 
 from typing import Optional
 import numpy as np
@@ -48,7 +48,7 @@ class TrajectoryPrimitives:
                 print(f"Augmented {len(trajs_augmented)} trajectories for primitive: {primitive_name}")
                 self.primitives.extend(trajs_augmented)
 
-    def generate_perturbed_trajectories(self, original_trajectory, primitive_name: str, N: int = 10):
+    def generate_perturbed_trajectories(self, original_trajectory: list[RigidTransform], primitive_name: str, N: int = 10):
         """
         Generates N perturbed trajectories from an original trajectory by applying
         random smooth perturbations in 6DoF space.
@@ -73,17 +73,17 @@ class TrajectoryPrimitives:
 
             np.random.seed()
             
-            # number of key points for interpolation (adjust for smoothness)
-            num_key_points = max(2, num_frames // 10)
+            # key pounts for interpolation
+            num_key_points = max(4, num_frames // 10)
             key_times = np.linspace(0, 1, num_key_points)
             
-            # Generate random perturbations at key points
+            # pertubations at key points
             random_translations = np.random.uniform(
                 -max_translation, max_translation, size=(num_key_points, 3))
             random_rotations = np.random.uniform(
                 -max_rotation, max_rotation, size=(num_key_points, 3))
             
-            # Interpolate perturbations for smoothness
+            # Interpolate perturbations
             delta_translation_func = interp1d(
                 key_times, random_translations, axis=0, kind='cubic', fill_value="extrapolate")
             delta_rotation_func = interp1d(
@@ -252,6 +252,19 @@ class TrajectoryPrimitive:
             raise ValueError(f"Unknown primitive_name: {self.primitive_name}")
         
         return trajectory
+    
+    def project_to_2D(self) -> list[np.ndarray]:
+        """
+        Project the trajectory to 2D case.
+        """
+        trajectory_2d = []
+        for pose in self.trajectory:
+            quaternion = pose.rotation().ToQuaternion()
+            cos_yaw, sin_yaw = quaternion_to_cos_sin_yaw(quaternion)
+            pose_2d = np.array([pose.translation()[0], pose.translation()[1], cos_yaw, sin_yaw])
+            trajectory_2d.append(pose_2d)
+        
+        return trajectory_2d
 
 
     def __iter__(self):

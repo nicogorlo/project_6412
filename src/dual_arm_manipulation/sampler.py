@@ -26,7 +26,7 @@ from mergedeep import merge
 from tqdm import tqdm
 import pickle
 
-class AbstractPlanner(ABC):
+class AbstractSampler(ABC):
     def __init__(self, plant: MultibodyPlant, plant_context: LeafContext, simulate: bool = False):
         self.simulate: bool = simulate
         self.plant: MultibodyPlant = plant
@@ -42,15 +42,15 @@ class AbstractPlanner(ABC):
         
 
     @abstractmethod
-    def plan(self):
+    def sample(self):
         pass
 
     def _load_config(self, config_path: Path):
         with open(config_path, "r") as file:
-            self.config = yaml.safe_load(file)["planner"]
+            self.config = yaml.safe_load(file)["sampler"]
 
 
-class GCSPlanner(AbstractPlanner):
+class PrimitiveSampler(AbstractSampler):
     def __init__(self, plant: MultibodyPlant, plant_context: LeafContext, start_pose: RigidTransform, goal_pose: RigidTransform, contact_modes: list[ContactMode], simulate: bool = False, config_path: Path = ROOT_DIR / "config" / "config.yaml"):
         super().__init__(plant, plant_context, simulate)
 
@@ -63,7 +63,7 @@ class GCSPlanner(AbstractPlanner):
         self.trajectory_primitives: dict[str,TrajectoryPrimitives] = {mode.name: TrajectoryPrimitives(mode.default_pose, mode, self.config) for mode in contact_modes}
         self.ik_solutions: dict[str,dict[str, np.ndarray[Optional[RigidTransform]]]] = {mode.name: {} for mode in contact_modes}
 
-    def plan(self):
+    def sample(self):
         print("Planning")
         return
 
@@ -166,12 +166,12 @@ class GCSPlanner(AbstractPlanner):
             n_samples: int, the number of samples to generate
         """
 
-        for _ in tqdm(range(n_samples)):
+        for sample_id in tqdm(range(n_samples)):
 
             for contact_mode in self.contact_modes:
                 start_pose = self.sample_tabletop_pose(bounding_box, contact_mode)
                 goal_pose = self.sample_tabletop_pose(bounding_box, contact_mode)
-                trajectory_primitive = TrajectoryPrimitive('TO_GOAL', contact_mode, start_pose, None, self.config, goal_pose, config_overwrite={'num_steps': samples_per_trajectory} if samples_per_trajectory is not None else {})
+                trajectory_primitive = TrajectoryPrimitive(f'TO_GOAL_{sample_id}', contact_mode, start_pose, None, self.config, goal_pose, config_overwrite={'num_steps': samples_per_trajectory} if samples_per_trajectory is not None else {})
                 self.trajectory_primitives[contact_mode.name].primitives.append(trajectory_primitive)
                 solution = self.ik_trajectory(trajectory_primitive.trajectory, contact_mode=contact_mode)
                 self.ik_solutions[contact_mode.name][trajectory_primitive.primitive_name] = solution
@@ -183,7 +183,7 @@ class GCSPlanner(AbstractPlanner):
         """
         x = random.uniform(bounding_box[0, 0], bounding_box[0, 1])
         y = random.uniform(bounding_box[1, 0], bounding_box[1, 1])
-        z = 0.15
+        z = self.config['box_height']
 
         # random upright rotation matrix
         yaw = random.uniform(-np.pi, np.pi)
@@ -338,14 +338,14 @@ class GCSPlanner(AbstractPlanner):
         return q_sol_iiwa
     
     def save_to_file(self, filename: str):
-        out_structure = {mode.name: [(primitive.trajectory, self.ik_solutions[mode.name][primitive.primitive_name]) for primitive in self.trajectory_primitives[mode.name].primitives] for mode in self.contact_modes}
-        with open(ROOT_DIR / "output" / "trajectories_full.pkl", "wb") as f:
+        out_structure = {mode.name: {primitive.primitive_name: (primitive.trajectory, self.ik_solutions[mode.name][primitive.primitive_name]) for primitive in self.trajectory_primitives[mode.name].primitives} for mode in self.contact_modes}
+        with open(ROOT_DIR / "output" / filename, "wb") as f:
             pickle.dump(out_structure, f)
 
     def load_from_file(self, filename: str):
         with open(ROOT_DIR / "output" / filename, "rb") as f:
             out_structure = pickle.load(f)
             for mode in self.contact_modes:
-                for idx, (trajectory, solution) in enumerate(out_structure[mode.name]):
-                    self.trajectory_primitives[mode.name].primitives.append(TrajectoryPrimitive(f'LOADFROMSAVED_{idx}', mode, trajectory[0], trajectory, self.config, self.goal_pose))
-                    self.ik_solutions[mode.name][f'LOADFROMSAVED_{idx}'] = solution
+                for primitive_name, (trajectory, solution) in out_structure[mode.name].items():
+                    self.trajectory_primitives[mode.name].primitives.append(TrajectoryPrimitive(primitive_name, mode, trajectory[0], trajectory, self.config, self.goal_pose))
+                    self.ik_solutions[mode.name][primitive_name] = solution

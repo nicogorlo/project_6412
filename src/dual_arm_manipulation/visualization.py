@@ -74,12 +74,13 @@ from manipulation.meshcat_utils import AddMeshcatTriad
 from typing import NamedTuple
 import numpy as np
 import time
+import matplotlib.pyplot as plt
 import logging
 from dual_arm_manipulation import ROOT_DIR
 from dual_arm_manipulation.environment import dual_arm_environment
 from dual_arm_manipulation.contact_mode import ContactMode
 from dual_arm_manipulation.trajectory_primitives import TrajectoryPrimitives, TrajectoryPrimitive
-from dual_arm_manipulation.sampler import GCSPlanner
+from dual_arm_manipulation.sampler import PrimitiveSampler
 from dual_arm_manipulation.utils import interpolate_6dof_poses, get_free_faces, pose_vec_to_transform, rotation_matrix_from_vectors
 import yaml
 
@@ -98,11 +99,11 @@ def visualise_trajectory_poses(visualizer: MeshcatVisualizer, poses: list[RigidT
         )
 
 
-def visualize_sample_trajectories(plant: MultibodyPlant, plant_context: Context, root_diagram: Diagram, root_context: Context, contact_mode: ContactMode, planner: GCSPlanner, simulator: Simulator, visualizer: MeshcatVisualizer):
+def visualize_sample_trajectories(plant: MultibodyPlant, plant_context: Context, root_diagram: Diagram, root_context: Context, contact_mode: ContactMode, sampler: PrimitiveSampler, simulator: Simulator, visualizer: MeshcatVisualizer):
     
-    for trajectory_sample in planner.trajectory_primitives[contact_mode.name]:
+    for trajectory_sample in sampler.trajectory_primitives[contact_mode.name]:
 
-        solution = planner.ik_solutions[contact_mode.name][trajectory_sample.primitive_name]
+        solution = sampler.ik_solutions[contact_mode.name][trajectory_sample.primitive_name]
 
         visualise_trajectory_poses(visualizer, trajectory_sample.trajectory)
             

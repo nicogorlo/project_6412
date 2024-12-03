@@ -89,64 +89,10 @@ import logging
 from dual_arm_manipulation import ROOT_DIR
 from dual_arm_manipulation.environment import dual_arm_environment
 from dual_arm_manipulation.contact_mode import ContactMode
-from dual_arm_manipulation.sampler import GCSPlanner
+from dual_arm_manipulation.sampler import PrimitiveSampler
 from dual_arm_manipulation.visualization import visualize_sample_trajectories, visualise_trajectory_poses
 from dual_arm_manipulation.utils import interpolate_6dof_poses, get_free_faces, pose_vec_to_transform, rotation_matrix_from_vectors
 import yaml
-
-def AnimateIris(
-    root_diagram: Diagram,
-    root_context: Context,
-    plant: MultibodyPlant,
-    region: HPolyhedron,
-    speed: float,
-    meshcat: MeshcatVisualizer,
-):
-    """
-    A simple hit-and-run-style idea for visualizing the IRIS regions:
-    1. Start at the center. Pick a random direction and run to the boundary.
-    2. Pick a new random direction; project it onto the current boundary, and run along it. Repeat
-    """
-
-    plant_context = plant.GetMyContextFromRoot(root_context)
-
-    q = region.ChebyshevCenter()
-    plant.SetPositions(plant_context, q)
-    root_diagram.ForcedPublish(root_context)
-
-    print("Press the 'Stop Animation' button in Meshcat to continue.")
-    meshcat.AddButton("Stop Animation", "Escape")
-
-    rng = np.random.default_rng()
-    nq = plant.num_positions()
-    prog = MathematicalProgram()
-    qvar = prog.NewContinuousVariables(nq, "q")
-    prog.AddLinearConstraint(region.A(), 0 * region.b() - np.inf, region.b(), qvar)
-    cost = prog.AddLinearCost(np.ones((nq, 1)), qvar)
-
-    while meshcat.GetButtonClicks("Stop Animation") < 1:
-        direction = rng.standard_normal(nq)
-        cost.evaluator().UpdateCoefficients(direction)
-
-        result = Solve(prog)
-        assert result.is_success()
-
-        q_next = result.GetSolution(qvar)
-
-        # Animate between q and q_next (at speed):
-        # TODO: normalize step size to speed... e.g. something like
-        # 20 * np.linalg.norm(q_next - q) / speed)
-        for t in np.append(np.arange(0, 1, 0.05), 1):
-            qs = t * q_next + (1 - t) * q
-
-            
-            plant.SetPositions(plant_context, qs)
-            root_diagram.ForcedPublish(root_context)
-            time.sleep(0.05)
-
-        q = q_next
-
-    meshcat.DeleteButton("Stop Animation")
 
 
 def main():
@@ -182,24 +128,24 @@ def main():
             visualizer, "goal_pose", length=0.1, radius=0.006, X_PT=goal_pose
         )
     
-    contact_mode_names = cfg["planner"]["contact_modes"].keys()
+    contact_mode_names = cfg["sampler"]["contact_modes"].keys()
     contact_modes = [ContactMode(name, cfg) for name in contact_mode_names]
-    n_rotations = cfg["planner"]["tabletop_configurations"]["n_rotations"]
+    n_rotations = cfg["sampler"]["tabletop_configurations"]["n_rotations"]
 
-    planner = GCSPlanner(plant, plant_context, start_pose, goal_pose, contact_modes, simulate=False, config_path=ROOT_DIR / "config" / "config.yaml")
-    # planner.tabletop_trajectory_samples(np.array([[-0.3, 0.3],[-0.5, 0.5]]), 100, 40)
+    sampler = PrimitiveSampler(plant, plant_context, start_pose, goal_pose, contact_modes, simulate=False, config_path=ROOT_DIR / "config" / "config.yaml")
+    sampler.tabletop_trajectory_samples(np.array([[-0.3, 0.3],[-0.5, 0.5]]), 100, 30)
     
-    # planner.save_to_file("trajectories_tabletop.pkl")
-    # planner.load_from_file("trajectories_tabletop.pkl")
+    sampler.save_to_file("trajectories_tabletop.pkl")
+    sampler.load_from_file("trajectories_tabletop.pkl")
         
-    planner.get_traj_primitives()
-    planner.get_goal_conditioned_tabletop_configurations()
+    sampler.get_traj_primitives()
+    sampler.get_goal_conditioned_tabletop_configurations()
 
-    planner.save_to_file("trajectories_primitives.pkl")
+    sampler.save_to_file("trajectories_primitives.pkl")
 
     for contact_mode in contact_modes:
-        assert len(planner.trajectory_primitives[contact_mode.name].primitives) == len(planner.ik_solutions[contact_mode.name])
-        visualize_sample_trajectories(plant, plant_context, diagram, context, contact_mode, planner, simulator, visualizer)
+        assert len(sampler.trajectory_primitives[contact_mode.name].primitives) == len(sampler.ik_solutions[contact_mode.name])
+        visualize_sample_trajectories(plant, plant_context, diagram, context, contact_mode, sampler, simulator, visualizer)
 
     print("done.")
 
