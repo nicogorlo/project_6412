@@ -21,6 +21,7 @@ class GCSPlanner:
         mode_to_sets: a mapping between contact mode name to a set of convex sets corresponding
         to valid object poses
         mode_to_static_sets: a mapping between contact mode name to a set of convex sets corresponding
+        to possible static equilibrium sets for the object 
         teleport: a boolean for whether we assume the robot can teleport between contact modes
         """
         self.mode_to_sets = mode_to_sets
@@ -34,6 +35,7 @@ class GCSPlanner:
         print("Graph of Convex Sets Built!")
         self.solver_options = GraphOfConvexSetsOptions()
         self.solver_options.solver = MosekSolver()
+        self.solver_options.preprocessing = True
         
             
     
@@ -79,8 +81,16 @@ class GCSPlanner:
                         u, v, name=f"intermode_{u.name()}_{v.name()}"
                     )
         
-    def solve_plan(self, start_pt: np.ndarray, end_pt: np.ndarray):
-        # Make points for source and target, and remove existing pointers
+    def add_edge_costs(self):
+        for edge in self.gcs.Edges():
+            xu = edge.xu()
+            xv = edge.xv()
+            cost = np.linalg.norm(xu - xv)
+            edge.AddCost(cost)
+        
+    def solve_plan(self, start_pt, end_pt):    
+        
+        # Set the start and end vertices
         start_set = Point(start_pt)
         end_set = Point(end_pt)
         if self.start_vertex is not None:
@@ -89,24 +99,24 @@ class GCSPlanner:
             self.gcs.RemoveVertex(self.end_vertex)
         self.start_vertex = self.gcs.AddVertex(start_set, name="start")
         self.end_vertex = self.gcs.AddVertex(end_set, name="end")
+        
         # Connect the start to all static equilibrium vertices
         for mode_name in self.modes:
             for static_vertex in self.mode_to_static_vertices[mode_name]:
                 if self.start_vertex.set().IntersectsWith(static_vertex.set()):
                     self.gcs.AddEdge(self.start_vertex, static_vertex, name=f"start_{static_vertex.name()}")
+                    
         # Connect the end to all vertices
         for v in self.gcs.Vertices():
             if self.end_vertex.set().IntersectsWith(v.set()):
                 if v.id() == self.end_vertex.id():
                     continue
                 self.gcs.AddEdge(v, self.end_vertex, name=f"{v.name()}_end")
-
+        
+        # Add edge costs
+        self.add_edge_costs()
         for edge in self.gcs.Edges():
             print("Edge name:", edge.name())
-        
-        #print("Num vars:", self.gcs.num_vars())
-        #print("Num constraints:", self.gcs.num_constraints())
-        
         
         # Solve the plan
         self.prog_result = self.gcs.SolveShortestPath(self.start_vertex, self.end_vertex, options=self.solver_options)
@@ -115,4 +125,6 @@ class GCSPlanner:
         print("Greedy DFS Path Found!")
         vertex_path = [e.u() for e in edge_path]
         vertex_path.append(edge_path[-1].v())
+        print("Edge Path", [e.name() for e in edge_path])
+        print("Vertex Path", [v.name() for v in vertex_path])
         return [v.GetSolution(self.prog_result) for v in vertex_path]
