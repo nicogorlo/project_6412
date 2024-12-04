@@ -149,7 +149,7 @@ def visualize_4D_sets(sampler: PrimitiveSampler):
 
     # Create a figure and a grid of subplots
     fig, axes = plt.subplots(nrows, ncols, figsize=(ncols*10, nrows*10))
-    axes = axes.flatten() 
+    axes = axes.flatten()
 
     for idx, contact_mode in enumerate(contact_modes):
         poses_2d = []

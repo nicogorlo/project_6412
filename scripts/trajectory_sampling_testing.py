@@ -97,8 +97,6 @@ import yaml
 
 def main():
 
-    t=0
-
     with open(ROOT_DIR / "config" / "config.yaml", "r") as f:
         cfg = yaml.load(f, Loader=yaml.FullLoader)
 

@@ -98,7 +98,7 @@ import yaml
 
 def main():
 
-    scenario = "primitives" # tabletop, primitives, full 
+    scenario = "primitives_high_coverage" # tabletop, primitives, full, primitives_high_coverage
 
     with open(ROOT_DIR / "config" / "config.yaml", "r") as f:
         cfg = yaml.load(f, Loader=yaml.FullLoader)
