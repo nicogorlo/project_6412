@@ -1,4 +1,4 @@
-# 6.412 Robotic Manipulation - final project
+# 6.4212 Robotic Manipulation - final project
 
 ## Students
 - [Nitish Dashora](https://www.nitishdashora.com/)
@@ -41,3 +41,8 @@ pip install -e .
 
 - [ ] Planner
     - 
+
+## Thoughts:
+- Conceptual question: We are creating a couple of sets per contact mode. In the case that several sets of different contact modes overlap, how do we prevent the method from arbitrarily switching contact modes?
+    we need to somehow add an additional cost for switching contact modes
+- Computational complexity of computing convex hull contains relates to lower dimensionality of purely tabletop problem: Each point is basically also on the edge of the convex hull if the volume is really small.

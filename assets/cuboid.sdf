@@ -5,7 +5,7 @@
   <link name="cuboid_body">
     <inertial>
       <mass>1.0</mass>
-      <pose>0 0 0.5 0 0 0</pose>
+      <pose>0 0 0 0 0 0</pose>
       <inertia>
         <ixx>0.000833</ixx>
         <ixy>0</ixy>
@@ -15,23 +15,96 @@
         <izz>0.000833</izz>
       </inertia>
     </inertial>
-    <visual name="cuboid_visual">
-      <pose>0 0 0.5 0 0 0</pose>
+    
+    <!-- X+ face (light red) -->
+    <visual name="cuboid_visual_x_pos">
+      <pose>0.145 0 0 0 1.5708 0</pose>
       <geometry>
         <box>
-          <size>0.3 0.3 0.3</size>
+          <size>0.299 0.299 0.009</size>
         </box>
       </geometry>
       <material>
-        <ambient>1 0 0 1</ambient>
-        <diffuse>1 0 0 1</diffuse>
+        <ambient>1 0.5 0.5 1</ambient>
+        <diffuse>1 0.5 0.5 1</diffuse>
       </material>
     </visual>
-    <collision name="cuboid_collision">
-      <pose>0 0 0.5 0 0 0</pose>
+
+    <!-- X- face (dark red) -->
+    <visual name="cuboid_visual_x_neg">
+      <pose>-0.145 0 0 0 -1.5708 0</pose>
       <geometry>
         <box>
-          <size>0.3 0.3 0.3</size>
+          <size>0.299 0.299 0.009</size>
+        </box>
+      </geometry>
+      <material>
+        <ambient>0.5 0 0 1</ambient>
+        <diffuse>0.5 0 0 1</diffuse>
+      </material>
+    </visual>
+
+    <!-- Y+ face (light green) -->
+    <visual name="cuboid_visual_y_pos">
+      <pose>0 0.145 0 -1.5708 0 0</pose>
+      <geometry>
+        <box>
+          <size>0.2995 0.2995 0.0095</size>
+        </box>
+      </geometry>
+      <material>
+        <ambient>0.5 1 0.5 1</ambient>
+        <diffuse>0.5 1 0.5 1</diffuse>
+      </material>
+    </visual>
+
+    <!-- Y- face (dark green) -->
+    <visual name="cuboid_visual_y_neg">
+      <pose>0 -0.145 0 1.5708 0 0</pose>
+      <geometry>
+        <box>
+          <size>0.2995 0.2995 0.0095</size>
+        </box>
+      </geometry>
+      <material>
+        <ambient>0 0.5 0 1</ambient>
+        <diffuse>0 0.5 0 1</diffuse>
+      </material>
+    </visual>
+
+    <!-- Z+ face (light blue) -->
+    <visual name="cuboid_visual_z_pos">
+      <pose>0 0 0.145 0 0 3.14159</pose>
+      <geometry>
+        <box>
+          <size>0.3 0.3 0.01</size>
+        </box>
+      </geometry>
+      <material>
+        <ambient>0.5 0.5 1 1</ambient>
+        <diffuse>0.5 0.5 1 1</diffuse>
+      </material>
+    </visual>
+
+    <!-- Z- face (dark blue) -->
+    <visual name="cuboid_visual_z_neg">
+      <pose>0 0 -0.145 0 0 0</pose>
+      <geometry>
+        <box>
+          <size>0.3 0.3 0.01</size>
+        </box>
+      </geometry>
+      <material>
+        <ambient>0 0 0.5 1</ambient>
+        <diffuse>0 0 0.5 1</diffuse>
+      </material>
+    </visual>
+
+    <collision name="cuboid_collision">
+      <pose>0 0 0 0 0 0</pose>
+      <geometry>
+        <box>
+          <size>0.28 0.28 0.28</size>
         </box>
       </geometry>
       <drake:proximity_properties>
@@ -40,6 +113,24 @@
       </drake:proximity_properties>
     </collision>
   </link>
+  <frame name="X_pos_contact">
+    <pose>0.15 0 0 0 -1.5708 0</pose> <!-- Y-axis rotation of -90 degrees -->
+  </frame>
+  <frame name="X_neg_contact">
+    <pose>-0.15 0 0 0 1.5708 0</pose> <!-- Y-axis rotation of +90 degrees -->
+  </frame>
+  <frame name="Y_pos_contact">
+    <pose>0 0.15 0 1.5708 0 0</pose> <!-- X-axis rotation of +90 degrees -->
+  </frame>
+  <frame name="Y_neg_contact">
+    <pose>0 -0.15 0 -1.5708 0 0</pose> <!-- X-axis rotation of -90 degrees -->
+  </frame>
+  <frame name="Z_pos_contact">
+    <pose>0 0 0.15 3.14159 0 0</pose> <!-- No rotation needed -->
+  </frame>
+  <frame name="Z_neg_contact">
+    <pose>0 0 -0.15 0 0 0</pose> <!-- X-axis rotation of 180 degrees -->
+  </frame>
 </model>
 
 </sdf>
