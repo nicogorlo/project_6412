@@ -55,6 +55,7 @@ class GCSPlanner:
             for i, static_set in enumerate(static_sets):
                 v = self.gcs.AddVertex(static_set, name=f"{mode_name}_static_{i+1}")
                 self.mode_to_static_vertices[mode_name].append(v)
+        print("Vertices Added!")
         
         # Densely connect vertices within the same contact mode (intra)
         for mode_name in self.modes:
@@ -68,6 +69,7 @@ class GCSPlanner:
                     self.gcs.AddEdge(
                         u, v, name=f"intramode_{u.name()}_{v.name()}"
                     )
+        print("Intra-Mode Vertices Connected!")
         
         # Connect static sets between contact modes (inter)
         for mode1, mode2 in product(self.modes, repeat=2):
@@ -80,6 +82,7 @@ class GCSPlanner:
                     self.gcs.AddEdge(
                         u, v, name=f"intermode_{u.name()}_{v.name()}"
                     )
+        print("Inter-Mode Static Vertices Connected!")
         
     def add_edge_costs(self):
         for edge in self.gcs.Edges():
@@ -115,8 +118,7 @@ class GCSPlanner:
         
         # Add edge costs
         self.add_edge_costs()
-        for edge in self.gcs.Edges():
-            print("Edge name:", edge.name())
+        print(self.gcs.GetGraphvizString())
         
         # Solve the plan
         self.prog_result = self.gcs.SolveShortestPath(self.start_vertex, self.end_vertex, options=self.solver_options)

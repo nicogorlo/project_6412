@@ -356,12 +356,10 @@ class Node():
 
 class SetGen():
     def __init__(self):
-
         self.nodes = []
         self.negative_points = []
         self.node_indx = 0
 
-        pass
     def __call__(self):
         pass
 
