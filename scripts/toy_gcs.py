@@ -1,55 +1,67 @@
 import numpy as np
 from matplotlib import pyplot as plt
-from gcs import construct_convex_hulls, construct_graph_of_convex_sets, generate_path
+from src.dual_arm_manipulation.planner import GCSPlanner
+from pydrake.geometry.optimization import ConvexSet, Point, ConvexHull, HPolyhedron, VPolytope
 
-# define a few line segments for 1 contact mode (in 2D for now)
-cm1 = [
-    np.linspace([-5, 5], [0, 0], 5),
-    np.linspace([-5, 0], [0, 5], 5),
-]
+# Define the convex sets for each contact mode
+r1, r2 = 9, 9
+static_r1, static_r2 = 5, 5
+start_x, start_y = 0, 4.75
+end_x, end_y = 10, -10
+x1, y1, x2, y2 = -10, 10, 10, -10
+static_x1, static_y1, static_x2, static_y2 = -1, 1, 1, -1
+npts = 20
 
-cm2 = [
-    np.linspace([-1, 5], [4, 0], 5),
-    np.linspace([-1, 0], [4, 5], 5),
-]
-cm3 = [
-    np.linspace([3, 5], [8, 0], 5),
-    np.linspace([3, 0], [8, 5], 5),
-]
+# Sample from a circle centered at (x, y) with radius r
+circle1_pts = np.array([[x1 + r1*np.cos(theta), y1 + r1*np.sin(theta)] for theta in np.linspace(0, 2*np.pi, npts)]).T
+circle1 = HPolyhedron(VPolytope(circle1_pts))
 
-cms = {
-    "cm1": cm1,
-    "cm2": cm2,
-    "cm3": cm3,
+circle2_pts = np.array([[x2 + r2*np.cos(theta), y2 + r2*np.sin(theta)] for theta in np.linspace(0, 2*np.pi, npts)]).T
+circle2 = HPolyhedron(VPolytope(circle2_pts))
+
+# Sample static sets
+static_circle1_pts = np.array([[static_x1 + static_r1*np.cos(theta), static_y1 + static_r1*np.sin(theta)] for theta in np.linspace(0, 2*np.pi, npts)]).T
+static_circle1 = HPolyhedron(VPolytope(static_circle1_pts))
+
+static_circle2_pts = np.array([[static_x2 + static_r2*np.cos(theta), static_y2 + static_r2*np.sin(theta)] for theta in np.linspace(0, 2*np.pi, npts)]).T
+static_circle2 = HPolyhedron(VPolytope(static_circle2_pts))
+
+# Plot
+polygon_edges_circle1 = [circle1_pts[..., i] for i in range(circle1_pts.shape[1])]
+polygon_edges_circle2 = [circle2_pts[..., i] for i in range(circle2_pts.shape[1])]
+polygon_edges_static_circle1 = [static_circle1_pts[..., i] for i in range(static_circle1_pts.shape[1])]
+polygon_edges_static_circle2 = [static_circle2_pts[..., i] for i in range(static_circle2_pts.shape[1])]
+plt.plot([pt[0] for pt in polygon_edges_circle1], [pt[1] for pt in polygon_edges_circle1], 'r')
+plt.plot([pt[0] for pt in polygon_edges_circle2], [pt[1] for pt in polygon_edges_circle2], 'b')
+plt.plot([pt[0] for pt in polygon_edges_static_circle1], [pt[1] for pt in polygon_edges_static_circle1], 'r--')
+plt.plot([pt[0] for pt in polygon_edges_static_circle2], [pt[1] for pt in polygon_edges_static_circle2], 'b--')
+
+# Plot Start and Goal
+plt.scatter(start_x, start_y, c='g', label='Start')
+plt.scatter(end_x, end_y, c='g', label='End')
+
+# Make a GCS planner
+mode_to_sets = {
+    "mode1": {circle1},
+    "mode2": {circle2},
 }
+mode_to_static_sets = {
+    "mode1": {static_circle1},
+    "mode2": {static_circle2}
+}
+gcs_planner = GCSPlanner(mode_to_sets, mode_to_static_sets)
+print("GCS Planner created!")
 
-chs = construct_convex_hulls(cms)
-gcs = construct_graph_of_convex_sets(chs)
-start = np.array([-4, 3])
-end = np.array([7, 3])
+# Now we can plan a trajectory between the two modes
+start_point = np.array([start_x, start_y])
+end_point = np.array([end_x, end_y])
+trajectory = gcs_planner.solve_plan(start_point, end_point)
 
-print("graph edges:", [e.name() for e in gcs.Edges()])
-
-edges, wps = generate_path(gcs, start, end)
-print("Start", start)
-print("End", end)
-print("Waypoints", wps)
-print("Edge names", [e.name() for e in edges])
+print("Trajectory:", trajectory)
 
 
-
-# plot these line segments
-for segment in cm1:
-    plt.plot(segment[:, 0], segment[:, 1], 'red')
-for segment in cm2:
-    plt.plot(segment[:, 0], segment[:, 1], 'blue')
-for segment in cm3:
-    plt.plot(segment[:, 0], segment[:, 1], 'orange')
-
-plt.plot(start[0], start[1], 'go')
-plt.plot(end[0], end[1], 'go')
-
-plt.ylim(-10, 10)
-plt.xlim(-10, 10)
-
+plt.plot([pt[0] for pt in trajectory], [pt[1] for pt in trajectory], 'g')
+plt.scatter([pt[0] for pt in trajectory], [pt[1] for pt in trajectory], c='g')
+plt.legend()
 plt.show()
+
