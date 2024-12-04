@@ -125,7 +125,7 @@ def animate_sets(
 
             for t in np.append(np.arange(0, 1, 0.05), 1):
                 qs = t * q_next + (1 - t) * q
-                plant.SetPositions(plant_context, plant.GetModelInstanceByName("movable_cuboid"),  q)
+                plant.SetPositions(plant_context, plant.GetModelInstanceByName("movable_cuboid"),  qs)
                 root_diagram.ForcedPublish(root_context)
                 time.sleep(0.05)
 
