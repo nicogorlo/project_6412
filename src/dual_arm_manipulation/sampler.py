@@ -175,6 +175,8 @@ class PrimitiveSampler(AbstractSampler):
                 self.trajectory_primitives[contact_mode.name].primitives.append(trajectory_primitive)
                 solution = self.ik_trajectory(trajectory_primitive.trajectory, contact_mode=contact_mode)
                 self.ik_solutions[contact_mode.name][trajectory_primitive.primitive_name] = solution
+
+                assert len(self.trajectory_primitives[contact_mode.name].primitives[-1]) == len(self.ik_solutions[contact_mode.name][trajectory_primitive.primitive_name])
             
 
     def sample_tabletop_pose(self, bounding_box, contact_mode: ContactMode):

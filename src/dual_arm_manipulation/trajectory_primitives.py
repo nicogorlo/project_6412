@@ -152,7 +152,9 @@ class TrajectoryPrimitive:
         Returns:
             list[RigidTransform]: The trajectory of the primitive
         """
-        if trajectory == None:
+        if trajectory is not None:
+            return trajectory
+        else:
             trajectory = []
         if self.primitive_name == 'YAW_90_cw':
             # Rotate by -pi/2 about the z-axis (clockwise yaw)
@@ -245,9 +247,6 @@ class TrajectoryPrimitive:
                 pose = RigidTransform(rotation, translation)
                 trajectory.append(pose)
 
-        elif trajectory is not None:
-            trajectory = trajectory
-
         else:
             raise ValueError(f"Unknown primitive_name: {self.primitive_name}")
         
@@ -260,7 +259,7 @@ class TrajectoryPrimitive:
         trajectory_2d = []
         for pose in self.trajectory:
             quaternion = pose.rotation().ToQuaternion()
-            cos_yaw, sin_yaw = quaternion_to_cos_sin_yaw(quaternion)
+            cos_yaw, sin_yaw = quaternion_to_cos_sin_yaw(quaternion.w(), quaternion.x(), quaternion.y(), quaternion.z())
             pose_2d = np.array([pose.translation()[0], pose.translation()[1], cos_yaw, sin_yaw])
             trajectory_2d.append(pose_2d)
         

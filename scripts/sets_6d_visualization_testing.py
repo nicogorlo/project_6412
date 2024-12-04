@@ -90,14 +90,15 @@ from dual_arm_manipulation import ROOT_DIR
 from dual_arm_manipulation.environment import dual_arm_environment
 from dual_arm_manipulation.contact_mode import ContactMode
 from dual_arm_manipulation.sampler import PrimitiveSampler
-from dual_arm_manipulation.visualization import visualize_sample_trajectories, visualise_trajectory_poses
+from dual_arm_manipulation.set_creation import SetGen, Node
+from dual_arm_manipulation.visualization import visualize_sample_trajectories, visualise_trajectory_poses, visualize_generated_sets, animate_sets
 from dual_arm_manipulation.utils import interpolate_6dof_poses, get_free_faces, pose_vec_to_transform, rotation_matrix_from_vectors
 import yaml
 
 
 def main():
 
-    t=0
+    scenario = "primitives" # tabletop, primitives, full 
 
     with open(ROOT_DIR / "config" / "config.yaml", "r") as f:
         cfg = yaml.load(f, Loader=yaml.FullLoader)
@@ -125,7 +126,7 @@ def main():
     goal_pose = pose_vec_to_transform(cfg["eval"]["goal_pose"])
 
     AddMeshcatTriad(
-            visualizer, "goal_pose", length=0.1, radius=0.006, X_PT=goal_pose
+            visualizer, "goal_pose", length=0.1, radius=0.02, X_PT=goal_pose
         )
     
     contact_mode_names = cfg["sampler"]["contact_modes"].keys()
@@ -133,19 +134,13 @@ def main():
     n_rotations = cfg["sampler"]["tabletop_configurations"]["n_rotations"]
 
     sampler = PrimitiveSampler(plant, plant_context, start_pose, goal_pose, contact_modes, simulate=False, config_path=ROOT_DIR / "config" / "config.yaml")
-    # sampler.tabletop_trajectory_samples(np.array([[-0.3, 0.3],[-0.5, 0.5]]), 100, 30)
-    
-    # sampler.save_to_file("trajectories_tabletop.pkl") # either this line or the next, not both
-    # sampler.load_from_file("trajectories_tabletop.pkl")
-        
-    sampler.get_traj_primitives()
-    sampler.get_goal_conditioned_tabletop_configurations()
+    sampler.load_from_file(f"trajectories_{scenario}.pkl")
 
-    sampler.save_to_file("trajectories_primitives.pkl")
+    with open(ROOT_DIR / "output" / f"set_gen_{scenario}_X_POS.pkl", "rb") as f:
+        set_gen = pickle.load(f)
 
-    for contact_mode in contact_modes:
-        assert len(sampler.trajectory_primitives[contact_mode.name].primitives) == len(sampler.ik_solutions[contact_mode.name])
-        visualize_sample_trajectories(plant, plant_context, diagram, context, contact_mode, sampler, simulator, visualizer)
+    # visualize_generated_sets(plant, plant_context, diagram, context, set_gen, visualizer)
+    animate_sets(diagram, context, plant, set_gen, visualizer)
 
     print("done.")
 

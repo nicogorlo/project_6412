@@ -86,17 +86,17 @@ class ContactMode:
         
     def get_default_pose_(self):
         if self.name == "X_POS":
-            return RigidTransform(RotationMatrix(), np.array([0.0, 0.0, 0.2]))
+            return RigidTransform(RotationMatrix(), np.array([0.0, 0.0, self.config['sampler']['box_height'] if 'sampler' in self.config else 0.15]))
         elif self.name == "X_NEG":
-            return RigidTransform(RotationMatrix(RollPitchYaw((0,0, np.pi))), np.array([0.0, 0.0, 0.2]))
+            return RigidTransform(RotationMatrix(RollPitchYaw((0,0, np.pi))), np.array([0.0, 0.0, self.config['sampler']['box_height'] if 'sampler' in self.config else 0.15]))
         elif self.name == "Y_POS":
-            return RigidTransform(RotationMatrix(RollPitchYaw((np.pi/2, np.pi/2, 0))), np.array([0.0, 0.0, 0.2]))
+            return RigidTransform(RotationMatrix(RollPitchYaw((0.0, 0.0, np.pi/2))), np.array([0.0, 0.0, self.config['sampler']['box_height'] if 'sampler' in self.config else 0.15]))
         elif self.name == "Y_NEG":
-            return RigidTransform(RotationMatrix(RollPitchYaw((np.pi/2, -np.pi/2, 0))), np.array([0.0, 0.0, 0.2]))
+            return RigidTransform(RotationMatrix(RollPitchYaw((0.0, 0.0, -np.pi/2))), np.array([0.0, 0.0, self.config['sampler']['box_height'] if 'sampler' in self.config else 0.15]))
         elif self.name == "Z_POS":
-            return RigidTransform(RotationMatrix(RollPitchYaw((0, np.pi/2, 0))), np.array([0.0, 0.0, 0.2]))
+            return RigidTransform(RotationMatrix(RollPitchYaw((0, np.pi/2, 0))), np.array([0.0, 0.0, self.config['sampler']['box_height'] if 'sampler' in self.config else 0.15]))
         elif self.name == "Z_NEG":
-            return RigidTransform(RotationMatrix(RollPitchYaw((0, -np.pi/2, 0))), np.array([0.0, 0.0, 0.2]))
+            return RigidTransform(RotationMatrix(RollPitchYaw((0, -np.pi/2, 0))), np.array([0.0, 0.0, self.config['sampler']['box_height'] if 'sampler' in self.config else 0.15]))
         else:
             raise ValueError(f"Invalid contact mode: {self.name}")
         
