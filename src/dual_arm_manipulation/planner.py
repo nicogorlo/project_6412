@@ -36,6 +36,7 @@ class GCSPlanner:
         self.solver_options = GraphOfConvexSetsOptions()
         self.solver_options.solver = MosekSolver()
         self.solver_options.preprocessing = True
+        self.solver_options.convex_relaxation = True
         
             
     
