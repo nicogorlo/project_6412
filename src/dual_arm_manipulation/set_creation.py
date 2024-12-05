@@ -508,7 +508,7 @@ class SetGen:
                 # find the nearest node to the current node
 
                 _, closest_indices = kdtree.query(
-                    node.center, k=k
+                    node.center, k=min(k, len(self.nodes))
                 )  # get the top k closest
                 for j in closest_indices:
                     if i == j:
