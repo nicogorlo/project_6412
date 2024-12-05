@@ -422,7 +422,7 @@ class SetGen:
         self.node_indx = 0
 
     def __call__(self, paths):
-        path
+        self.construct_initial_sets(paths)
 
     def construct_initial_sets(self, paths):
         """construct the initial set problem from the path data
