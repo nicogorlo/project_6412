@@ -417,9 +417,9 @@ class Node:
 class SetGen:
     def __init__(self):
 
-        self.nodes = []
-        self.negative_points = []
-        self.node_indx = 0
+        self.nodes: list[Node] = []
+        self.negative_points: list[np.ndarray] = []
+        self.node_indx: int = 0
 
     def __call__(self, paths):
         self.construct_initial_sets(paths)
@@ -508,7 +508,7 @@ class SetGen:
                 # find the nearest node to the current node
 
                 _, closest_indices = kdtree.query(
-                    node.center, k=k
+                    node.center, k=min(k, len(self.nodes))
                 )  # get the top k closest
                 for j in closest_indices:
                     if i == j:
@@ -576,30 +576,37 @@ class SetGen:
 
 def main():
     # load in the data:
-    scenario = "primitives_high_coverage"  # "tabletop" or "full" or "primitives" or primitives_high_coverage
+    scenario = "primitives_high_coverage"  # "tabletop" or "full" or "primitives" or "primitives_high_coverage"
 
     with open(ROOT_DIR / f"output/trajectories_{scenario}.pkl", "rb") as f:
         out_structure = pickle.load(f)
 
+    sets: dict[SetGen] = dict()
+
     print(len(out_structure))
     print(out_structure.keys())
 
-    set_gen = SetGen()
-    set_gen.construct_initial_sets(out_structure["X_POS"])
-    set_gen.deshatter()
+    for contact_mode in out_structure.keys():
+        
+        set_gen = SetGen()
+        set_gen.construct_initial_sets(out_structure[contact_mode])
 
-    with open(ROOT_DIR / f"output/set_gen_{scenario}_X_POS.pkl", "wb") as f:
-        pickle.dump(set_gen, f)
+        set_gen.deshatter()
 
-    print("-" * 50)
-    # compute some stats about the nodes:
-    for node in set_gen.nodes:
-        print(node)
-        print("Volume: ", node.volume())
-        print("Density: ", node._density())
-        print("Spatial Density: ", node._spatial_density())
-        print("Orientation Density: ", node._orientation_density())
+        sets[contact_mode] = set_gen
 
+        print("-" * 50)
+        # compute some stats about the nodes:
+        for node in set_gen.nodes:
+            print(node)
+            print("Volume: ", node.volume())
+            print("Density: ", node._density())
+            print("Spatial Density: ", node._spatial_density())
+            print("Orientation Density: ", node._orientation_density())
+
+
+    with open(ROOT_DIR / f"output/set_gen_{scenario}.pkl", "wb") as f:
+            pickle.dump(sets, f)
 
 if __name__ == "__main__":
     main()
