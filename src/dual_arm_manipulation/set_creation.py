@@ -32,19 +32,21 @@ TODO:
 
 
 ## the slow step - could be parallelised?
-def in_hull(points, equations):
-
-    translation = np.all(
-        np.add(np.dot(points[:, :3], equations[:, :3].T), equations[:, -1]) <= 1e-12,
-        axis=1,
-    )
-    rotation = np.all(
-        np.add(np.dot(points[:, 3:] * 0.1, equations[:, 3:-1].T), equations[:, -1]) <= 1e-12,
-        axis=1,
-    )
+def in_hull(points, equations, tol=1e-12):
     return np.any(
-        np.hstack([translation, rotation])
+        np.all(
+            np.add(np.dot(points, equations[:, :-1].T), equations[:, -1]) <= tol,
+            axis=1,
+        )
     )
+    ## update the in_hull function to use the seperated orientation and translation vectors:
+
+def special_in_hull(points, spatial_equation, orientation_equations, tol=1e-12):
+    spatial = np.all(np.add(np.dot(points[:, :3], spatial_equation[:, :-1].T), spatial_equation[:, -1]) <= tol, axis=1)
+    orientation = np.all(np.add(np.dot(0.1*points[:, 3:], orientation_equations[:, :-1].T), orientation_equations[:, -1]) <= tol, axis=1)
+    return np.any(np.all([spatial, orientation], axis=0))
+
+
 
 
 def in_hull_parallel(points, equations, tol=1e-12, n_jobs=-1):
@@ -136,13 +138,19 @@ class Node:
             self.spatial_set = ConvexHull(
                 qt[:, :3], qhull_options="QJ"
             )  # define the spatial set for density computation
+            # add the zero quaternion to the orientation set:
+            orientation_points = np.concatenate([qt[:, 3:], np.array([[0, 0, 0, 0]])], axis=0)
             self.orientation_set = ConvexHull(
-                qt[:, 3:], qhull_options="QJ"
+                orientation_points, qhull_options="QJ"
             )  # define the orientation set for density computation
         else:
             self.set = ConvexHull(self.points, qhull_options="QJ")
             self.spatial_set = ConvexHull(self.points[:, :3], qhull_options="QJ")
-            self.orientation_set = ConvexHull(self.points[:, 3:], qhull_options="QJ")
+            # add the zero quaternion to the orientation set:
+            orientation_points = np.concatenate(
+                [self.points[:, 3:], np.array([[0, 0, 0, 0]])], axis=0
+            )
+            self.orientation_set = ConvexHull(orientation_points, qhull_options="QJ")
 
     def __str__(self):
         return f"Node {self.node_indx} with {len(self.points)} points"
@@ -175,7 +183,8 @@ class Node:
         # vertex_points = self.set.points[self.set.vertices]
         # print(f'Point reduction: {len(self.points)} -> {len(vertex_points)}')
         # return (Delaunay(vertex_points, qhull_options='QJ').find_simplex(item) >= 0).any()
-        return self.t_contains(item, 1e-12)
+        # return self.t_contains(item, 1e-12)
+        return special_in_hull(item, self.spatial_set.equations, self.orientation_set.equations, 1e-12)
 
     def t_contains(self, item, tol):
         """Faster contains operation via linear programming:
@@ -217,10 +226,11 @@ class Node:
         return self.orientation_set.volume
 
     def _density(self):
-        if self.density is not None:
-            return self.density
-        self.density = len(self.points) / self.volume()
-        return self.density
+        # if self.density is not None:
+        #     return self.density
+        # self.density = len(self.points) / self.volume()
+        # return self.density
+        return self._spatial_density() * self._orientation_density()
 
     def _spatial_density(self):
         if self.spatial_density is not None:
@@ -367,6 +377,7 @@ class Node:
         vertices = self.set.points[self.set.vertices]
         if len(vertices) <= points_threshold:
             return
+        return
         print(f"Running set compression: {len(self.points)} points")
         init_vol = self.volume()
 
@@ -418,6 +429,65 @@ class Node:
                 f"Final number of points: {len(self.points)}",
                 f"Final volume ratio: {max_vol / init_vol}",
             )
+
+    def lossy_compression(self, other, negative_points, points_ratio=0.95, max_iterations=20):
+        v1 = self.volume()
+        v2 = other.volume()
+        min_vol = max(v1, v2)
+        
+        combined_set = np.concatenate([self.points, other.points], axis=0)
+        num_of_points = len(combined_set)
+        num_of_reduced_points = int(points_ratio*num_of_points)
+        
+        def evaluate_sample():
+            # Sample a random set of points
+            sample_points = combined_set[
+                np.random.choice(len(combined_set), num_of_reduced_points, replace=False)
+            ]
+            # Compute the convex hull of the sample points
+            # compute the node object for the sample hull:
+            sample_node = Node(None, sample_points, None)
+            sample_node.gen_set()
+            # evaluate whether the sample hull contains the negative points:
+            contains_negative = np.array(negative_points) in sample_node
+            # Return the sample hull and its volume
+            return sample_node, sample_points, contains_negative
+        
+        # Run RANSAC iterations in parallel
+        results = Parallel(n_jobs=-1)(
+            delayed(evaluate_sample)() for _ in range(max_iterations)
+        )
+
+        # Find the best result
+        max_vol, max_node, max_points = None, None, None
+        for sample_node, sample_points, contains_negative in results:
+            if contains_negative:
+                # print('tested set contains negative points')
+                continue
+            volume = sample_node.volume()
+            if volume > min_vol:
+                max_vol = volume
+                max_node = sample_node
+                max_points = sample_points
+        if max_vol is None:
+            print("Failure to compress")
+            return None
+        else:
+            # # Compute members of the compressed hull
+            # in_compressed_hull = np.all(
+            #     np.add(
+            #         np.dot(combined_set, max_set.equations[:, :-1].T),
+            #         max_set.equations[:, -1],
+            #     )
+            #     <= 1e-12,
+            #     axis=1,
+            # )
+            # merged_points = combined_set[in_compressed_hull]
+            print('Nodes merged,set vol ratio: ', max_vol/min_vol, 'points in new set: ', len(max_points))
+            return max_node
+        
+
+
 
 
 class SetGen:
@@ -534,7 +604,7 @@ class SetGen:
                         node | test_node
                     )  # only compute the convex hull when needed
 
-                    print("Checking for compression:")
+                    # print("Checking for compression:")
                     merged.parallel_ransac_compress()
 
                     check_pairs.append((node.node_indx, test_node.node_indx))
@@ -579,6 +649,81 @@ class SetGen:
 
         print("Final number of nodes: ", len(self.nodes))
 
+    def lossy_deshatter(self, max_iterations=5000,
+        spatial_density_threshold=0,
+        orientation_density_threshold=0,
+        k=10):
+        """deshatter the nodes by merging them together"""
+
+        original_number_of_positive_points = np.sum([len(n.points) for n in self.nodes])
+
+        initial_node_count = len(self.nodes)
+        check_pairs = []
+        for merge_iter in range(min(len(self.nodes), max_iterations)):
+            current_node_count = len(self.nodes)
+            print(f"Iteration {merge_iter}")
+            print("Current Number of nodes: ", len(self.nodes))
+            current_pos_points = np.sum([len(n.points) for n in self.nodes])
+            print(f'Current number of positive points vs original: {original_number_of_positive_points} -> {current_pos_points}')
+
+            exit_flag = False
+            if len(self.nodes) == 1:
+                break
+            # sort the nodes by density (highest to lowest)
+            self.nodes.sort(key=lambda x: x._density(), reverse=True)
+            # randomly shuffle the nodes
+            # np.random.shuffle(self.nodes)
+            # compute KD Tree based on node centers
+            kdtree = KDTree([node.center for node in self.nodes])
+            # loop through the nodes:
+            for i, node in enumerate(self.nodes):
+                # find the nearest node to the current node
+
+                _, closest_indices = kdtree.query(
+                    node.center, k=min(k, len(self.nodes))
+                )  # get the top k closest
+                for j in closest_indices:
+                    if i == j:
+                        continue
+                    test_node = self.nodes[j]
+                    print(f"Checking for node: {node} and test node: {test_node}")
+
+                    # check if the pair has already been checked
+                    if (node.node_indx, test_node.node_indx) in check_pairs or (
+                        test_node.node_indx,
+                        node.node_indx,
+                    ) in check_pairs:
+                        print("Already checked this pair" + "-" * 50)
+                        continue
+
+                    merged = node.lossy_compression(test_node, np.array(self.negative_points), points_ratio=0.8, max_iterations=20)
+                    if merged is None:
+                        continue
+                    else:
+                        merged.node_indx = self.node_indx
+                        self.node_indx += 1
+                        self.nodes.remove(node)
+                        self.nodes.remove(test_node)
+                        self.nodes.append(merged)
+                        exit_flag = True
+                        break
+                if exit_flag:
+                    break
+            updated_node_count = len(self.nodes)
+            if current_node_count == updated_node_count:
+                print("No more nodes to merge, exiting")
+                break
+        print("Final number of nodes: ", len(self.nodes))
+
+
+
+
+
+
+
+        
+
+
 
 def main():
     # load in the data:
@@ -598,8 +743,7 @@ def main():
         set_gen.construct_initial_sets(out_structure[contact_mode])
 
         set_gen.deshatter()
-
-        sets[contact_mode] = set_gen
+        
 
         print("-" * 50)
         # compute some stats about the nodes:
@@ -609,6 +753,21 @@ def main():
             print("Density: ", node._density())
             print("Spatial Density: ", node._spatial_density())
             print("Orientation Density: ", node._orientation_density())
+
+        set_gen.lossy_deshatter()
+
+        print("-" * 50)
+        # compute some stats about the nodes:
+        for node in set_gen.nodes:
+            print(node)
+            print("Volume: ", node.volume())
+            print("Density: ", node._density())
+            print("Spatial Density: ", node._spatial_density())
+            print("Orientation Density: ", node._orientation_density())
+
+        sets[contact_mode] = set_gen
+
+        break
 
 
     with open(ROOT_DIR / f"output/set_gen_{scenario}.pkl", "wb") as f:
