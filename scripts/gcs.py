@@ -117,5 +117,3 @@ def generate_path(
     gcs.RemoveVertex(target)
     
     return edge_list, waypoints
-    
-
