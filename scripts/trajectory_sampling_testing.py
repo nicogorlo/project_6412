@@ -97,6 +97,8 @@ import yaml
 
 def main():
 
+    scenario = "primitives"
+
     with open(ROOT_DIR / "config" / "config.yaml", "r") as f:
         cfg = yaml.load(f, Loader=yaml.FullLoader)
 
@@ -131,15 +133,24 @@ def main():
     n_rotations = cfg["sampler"]["tabletop_configurations"]["n_rotations"]
 
     sampler = PrimitiveSampler(plant, plant_context, start_pose, goal_pose, contact_modes, simulate=False, config_path=ROOT_DIR / "config" / "config.yaml")
-    # sampler.tabletop_trajectory_samples(np.array([[-0.3, 0.3],[-0.5, 0.5]]), 100, 30)
-    
-    # sampler.save_to_file("trajectories_tabletop.pkl") # either this line or the next, not both
-    # sampler.load_from_file("trajectories_tabletop.pkl")
-        
-    sampler.get_traj_primitives()
-    sampler.get_goal_conditioned_tabletop_configurations()
 
-    sampler.save_to_file("trajectories_primitives.pkl")
+    # sampler.load_from_file("trajectories_static.pkl")
+
+    if scenario == "tabletop":
+        sampler.tabletop_trajectory_samples(np.array([[-0.3, 0.3],[-0.5, 0.5]]), 100, cfg["sampler"]["num_steps"])
+        sampler.save_to_file("trajectories_static.pkl") # either this line or the next, not both
+    elif scenario == "primitives":
+        sampler.get_traj_primitives()
+        # sampler.get_goal_conditioned_tabletop_configurations()
+        sampler.save_to_file("trajectories_primitives.pkl")
+    elif scenario == "goal_conditioned":
+        sampler.get_goal_conditioned_tabletop_configurations()
+        sampler.save_to_file("trajectories_goal_conditioned.pkl")
+    elif scenario == "full":
+        sampler.tabletop_trajectory_samples(np.array([[-0.3, 0.3],[-0.5, 0.5]]), 100, cfg["sampler"]["num_steps"])
+        sampler.get_traj_primitives()
+        sampler.get_goal_conditioned_tabletop_configurations()
+        sampler.save_to_file("trajectories_full.pkl")
 
     for contact_mode in contact_modes:
         assert len(sampler.trajectory_primitives[contact_mode.name].primitives) == len(sampler.ik_solutions[contact_mode.name])

@@ -98,7 +98,7 @@ import yaml
 
 def main():
 
-    scenario = "primitives_high_coverage" # tabletop, primitives, full, primitives_high_coverage
+    scenario = "static" # tabletop, primitives, full, primitives_high_coverage
 
     with open(ROOT_DIR / "config" / "config.yaml", "r") as f:
         cfg = yaml.load(f, Loader=yaml.FullLoader)
@@ -136,8 +136,8 @@ def main():
     sampler = PrimitiveSampler(plant, plant_context, start_pose, goal_pose, contact_modes, simulate=False, config_path=ROOT_DIR / "config" / "config.yaml")
     sampler.load_from_file(f"trajectories_{scenario}.pkl")
 
-    with open(ROOT_DIR / "output" / f"set_gen_{scenario}_X_POS.pkl", "rb") as f:
-        set_gen = pickle.load(f)
+    with open(ROOT_DIR / "output" / f"set_gen_{scenario}.pkl", "rb") as f:
+        set_gen = pickle.load(f)['X_POS']
 
     # visualize_generated_sets(plant, plant_context, diagram, context, set_gen, visualizer)
     animate_sets(diagram, context, plant, set_gen, visualizer)

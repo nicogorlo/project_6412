@@ -9,7 +9,7 @@ from dual_arm_manipulation.utils import pose_vec_to_transform, quaternion_to_cos
 from typing import Optional
 import numpy as np
 from scipy.interpolate import interp1d
-
+import random
 
 kDefaultConfig = {
     "primitives": [
@@ -52,21 +52,22 @@ class TrajectoryPrimitives:
 
     def load_primitives(self):
         for primitive_name in self.config["primitives"]:
-            primitive = TrajectoryPrimitive(
-                primitive_name, self.contact_mode, self.start_pose, None, self.config
-            )
-            if not self.config.get("augment", False):
-                self.primitives.append(primitive)
-            else:
-                trajs_augmented = self.generate_perturbed_trajectories(
-                    primitive.trajectory,
-                    primitive_name,
-                    self.config["n_rand_augmentations"],
+            for n in range(self.config.get("n_samples_per_primitive", 1)):
+                primitive = TrajectoryPrimitive(
+                    primitive_name, self.contact_mode, self.start_pose if n == 0 else sample_tabletop_pose(np.array(self.config.get("tabletop_bounding_box")), self.contact_mode, self.config), None, self.config
                 )
-                print(
-                    f"Augmented {len(trajs_augmented)} trajectories for primitive: {primitive_name}"
-                )
-                self.primitives.extend(trajs_augmented)
+                if not self.config.get("augment", False):
+                    self.primitives.append(primitive)
+                else:
+                    trajs_augmented = self.generate_perturbed_trajectories(
+                        primitive.trajectory,
+                        primitive_name,
+                        self.config["n_rand_augmentations"],
+                    )
+                    print(
+                        f"Augmented {len(trajs_augmented)} trajectories for primitive: {primitive_name}"
+                    )
+                    self.primitives.extend(trajs_augmented)
 
     def generate_perturbed_trajectories(
         self,
@@ -306,7 +307,7 @@ class TrajectoryPrimitive:
 
         elif self.primitive_name.startswith("TO_GOAL"):
             num_steps = self.args.get("num_steps", 10)
-            for i in range(1, num_steps + 1):
+            for i in range(0, num_steps + 1):
                 fraction = i / num_steps
                 translation = (
                     1 - fraction
@@ -314,10 +315,53 @@ class TrajectoryPrimitive:
                 start_rpy = RollPitchYaw(self.start_pose.rotation())
                 goal_rpy = RollPitchYaw(self.goal_pose.rotation())
                 delta_rpy = goal_rpy.vector() - start_rpy.vector()
+                delta_rpy = (delta_rpy + np.pi) % (2 * np.pi) - np.pi
                 rpy = start_rpy.vector() + fraction * delta_rpy
                 rotation = RotationMatrix(RollPitchYaw(rpy))
                 pose = RigidTransform(rotation, translation)
                 trajectory.append(pose)
+        
+        elif self.primitive_name.startswith("TO_GOAL_INCREMENTAL"):
+            last_translation_diff = np.inf
+            last_rotation_diff = np.inf
+            position_flag = False
+            rotation_flag = False
+
+            assert ("translation_step_size" in self.args) and ("rotation_step_size" in self.args), "translation_step_size and rotation_step_size must be provided in the config."
+
+            current_pose = self.start_pose
+            direction_translation = (
+                self.goal_pose.translation() - self.start_pose.translation()
+                ) / np.linalg.norm(self.goal_pose.translation() - self.start_pose.translation())
+            start_rpy = RollPitchYaw(self.start_pose.rotation())
+            goal_rpy = RollPitchYaw(self.goal_pose.rotation())
+            delta_rpy = goal_rpy.vector() - start_rpy.vector()
+            (delta_rpy + np.pi) % (2 * np.pi) - np.pi
+            direction_rpy = (delta_rpy) / np.linalg.norm(delta_rpy)
+            while True:
+                translation = (
+                    current_pose.translation() + (0 if position_flag else self.args.get("translation_step_size") * direction_translation)
+                    )
+                rpy = start_rpy.vector() + (0 if rotation_flag else self.args.get("rotation_step_size") * direction_rpy)
+
+
+                if not position_flag and np.linalg.norm(current_pose.translation() - self.goal_pose.translation()) <= last_translation_diff:
+                    last_translation_diff = np.linalg.norm(current_pose.translation() - self.goal_pose.translation())
+                else:
+                    position_flag = True
+                
+                if not rotation_flag and np.linalg.norm(RollPitchYaw(current_pose.rotation()).vector() - goal_rpy.vector()) <= last_rotation_diff:
+                    last_rotation_diff = np.linalg.norm(RollPitchYaw(current_pose.rotation()).vector() - goal_rpy.vector())
+                else:
+                    rotation_flag = True
+                
+                if position_flag and rotation_flag:
+                    break
+
+                rotation = RotationMatrix(RollPitchYaw(rpy))
+                pose = RigidTransform(rotation, translation)
+                trajectory.append(pose)
+
 
         else:
             raise ValueError(f"Unknown primitive_name: {self.primitive_name}")
@@ -353,3 +397,44 @@ class TrajectoryPrimitive:
     def __setitem__(self, idx, value):
         self.trajectory[idx] = value
         return self.trajectory[idx]
+
+
+def sample_tabletop_pose(bounding_box: np.ndarray, contact_mode: ContactMode, config={}):
+        """
+        Samples a random pose on the tabletop.
+        """
+
+        x = random.uniform(bounding_box[0, 0], bounding_box[0, 1])
+        y = random.uniform(bounding_box[1, 0], bounding_box[1, 1])
+        z = config["box_height"]
+
+        # random upright rotation matrix
+        yaw = random.uniform(-np.pi, np.pi)
+
+        rotation = RollPitchYaw(0, 0, yaw)
+
+        if config.get("tabletop_height_variation") is not None:
+
+            z += random.uniform(
+                0,
+                config["tabletop_height_variation"],
+            )
+
+        if config.get("tabletop_orientation_variation") is not None:
+            rotation = RollPitchYaw(
+                    random.uniform(
+                        -config["tabletop_orientation_variation"],
+                        config["tabletop_orientation_variation"],
+                    ),
+                    random.uniform(
+                        -config["tabletop_orientation_variation"],
+                        config["tabletop_orientation_variation"],
+                    ),
+                    yaw,
+                )
+             
+            
+        return RigidTransform(rotation, [x, y, z]).multiply(
+            RigidTransform(contact_mode.default_pose.rotation(), [0, 0, 0])
+        )
+
