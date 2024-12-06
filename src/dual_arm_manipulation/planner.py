@@ -143,6 +143,9 @@ class GCSPlanner:
                 if idx // wp_sampling_rate not in edges_accounted_for:
                     if u.set().PointInSet(wp) and v.set().PointInSet(wp):
                         edges_accounted_for.add(idx // wp_sampling_rate)
-                        switch_wps.append(idx)
+                        static_cm_from = "_".join(uname.split('_')[:-2])
+                        static_cm_to = "_".join(vname.split('_')[:-2])
+                        t = (idx, static_cm_from, static_cm_to)
+                        switch_wps.append(t)
         return switch_wps
 
