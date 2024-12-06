@@ -5,10 +5,16 @@ from pydrake.geometry.optimization import (
     Point,
     ConvexHull
 )
+
+# from pydrake.symbolic import 
+from pydrake.math import le
 from pydrake.solvers import MosekSolver
 from itertools import combinations, product
 from typing import Dict, Set
 import numpy as np
+
+
+# TODO: add edge constraint for Xu solution to be in the overlapping set.
 
 class GCSPlanner:
     
@@ -91,9 +97,21 @@ class GCSPlanner:
             xv = edge.xv()
             cost = np.linalg.norm(xu - xv)
             edge.AddCost(cost)
+    
+    def add_edge_constraints(self):
+        for edge in self.gcs.Edges():
+            xu = edge.xu()
+            A = edge.v().set().A()
+            b = edge.v().set().b()
+            constraint = le(A @ xu - b, 0)
+            for c in constraint:
+                edge.AddConstraint(c)
+
         
     def solve_plan(self, start_pt, end_pt):    
         
+        self.add_edge_constraints()
+
         # Set the start and end vertices
         start_set = Point(start_pt)
         end_set = Point(end_pt)
@@ -124,13 +142,13 @@ class GCSPlanner:
         # Solve the plan
         self.prog_result = self.gcs.SolveShortestPath(self.start_vertex, self.end_vertex, options=self.solver_options)
         print("Shortest Path Optimization Solved!")
-        edge_path = self.gcs.GetSolutionPath(self.start_vertex, self.end_vertex, self.prog_result)
+        edge_path = self.gcs.GetSolutionPath(self.start_vertex, self.end_vertex, self.prog_result, tolerance=0.45)
         print("Greedy DFS Path Found!")
         vertex_path = [e.u() for e in edge_path]
         vertex_path.append(edge_path[-1].v())
         print("Edge Path", [e.name() for e in edge_path])
         print("Vertex Path", [v.name() for v in vertex_path])
-        return [v.GetSolution(self.prog_result) for v in vertex_path]
+        return [v.GetSolution(self.prog_result) for v in vertex_path], edge_path
     
     def get_switches(self, wp_path, edge_path, wp_sampling_rate):
         edges_accounted_for = set()
@@ -141,11 +159,10 @@ class GCSPlanner:
             vname = edge.v().name()
             if "static" in uname and "static" in vname and "intermode" in edge.name():
                 if idx // wp_sampling_rate not in edges_accounted_for:
-                    if u.set().PointInSet(wp) and v.set().PointInSet(wp):
+                    if edge.u().set().PointInSet(wp) and edge.v().set().PointInSet(wp):
                         edges_accounted_for.add(idx // wp_sampling_rate)
                         static_cm_from = "_".join(uname.split('_')[:-2])
                         static_cm_to = "_".join(vname.split('_')[:-2])
                         t = (idx, static_cm_from, static_cm_to)
                         switch_wps.append(t)
         return switch_wps
-
