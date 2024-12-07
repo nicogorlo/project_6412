@@ -3,7 +3,7 @@ from pydrake.common import RandomGenerator
 from dual_arm_manipulation.planner import GCSPlanner
 from dual_arm_manipulation.trajopt import GCSTrajOptPlanner
 from dual_arm_manipulation.set_creation import SetGen, Node, special_in_hull
-from pydrake.geometry.optimization import HPolyhedron, VPolytope
+from pydrake.geometry.optimization import HPolyhedron, VPolytope, Point
 import numpy as np
 import time
 from dual_arm_manipulation import ROOT_DIR
@@ -158,9 +158,25 @@ print("GCS Planner created! Time taken:", time.time() - t)
 # Now we can plan a trajectory between the two modes
 #start_pose = static_dict['Y_NEG'][3].UniformSample(RandomGenerator())
 # end_pose = dynamic_dict['X_POS'][0].UniformSample(RandomGenerator())
-start_pose = test_start_pose
-end_pose = test_end_pose
+start_pose = test_start_pose[0][0]
+end_pose = test_end_pose[0][0]
 
+start_pt = Point(start_pose)
+end_pt = Point(end_pose)
+
+# loop through every single set and print out ones that it is in
+for mode_name, sets in static_dict.items():
+    for i, set in enumerate(sets):
+        if set.IntersectsWith(start_pt):
+            print(f"Start pose in static set: {mode_name}")
+        if set.IntersectsWith(end_pt):
+            print(f"End pose in static set: {mode_name}")
+for mode_name, sets in dynamic_dict.items():
+    for i, set in enumerate(sets):
+        if set.IntersectsWith(start_pt):
+            print(f"Start pose in static set: {mode_name}")
+        if set.IntersectsWith(end_pt):
+            print(f"End pose in static set: {mode_name}")
 
 
 # only ones we need here are yneg and xpos!!!! run with just these two!

@@ -141,7 +141,8 @@ class GCSPlanner:
         
         # Add edge costs
         self.add_edge_costs()
-        print(self.gcs.GetGraphvizString())
+
+        print("Graph:", self.gcs.GetGraphvizString())
         
         # Solve the plan
         self.prog_result = self.gcs.SolveShortestPath(self.start_vertex, self.end_vertex, options=self.solver_options)
