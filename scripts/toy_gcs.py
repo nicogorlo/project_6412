@@ -1,8 +1,7 @@
 import numpy as np
 from matplotlib import pyplot as plt
-import sys; sys.path.append("/Users/dashora/Courses/project_6412")
-from src.dual_arm_manipulation.planner import GCSPlanner
-from pydrake.geometry.optimization import ConvexSet, Point, ConvexHull, HPolyhedron, VPolytope
+from dual_arm_manipulation.planner import GCSPlanner
+from pydrake.geometry.optimization import ConvexSet, Point, ConvexHull, HPolyhedron, VPolytope # type: ignore
 
 # Define the convex sets for each contact mode
 r1, r2 = 9, 9

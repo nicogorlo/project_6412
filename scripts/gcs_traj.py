@@ -1,8 +1,7 @@
 import pickle
 import sys; sys.path.append("/Users/dashora/Courses/project_6412")
 from pydrake.common import RandomGenerator
-from scripts.set_creation import SetGen, Node
-from pydrake.geometry.optimization import HPolyhedron, VPolytope
+from pydrake.geometry.optimization import HPolyhedron, VPolytope # type: ignore
 import numpy as np
 from src.dual_arm_manipulation.planner import GCSPlanner
 import time
@@ -52,8 +51,8 @@ print("GCS Planner created! Time taken:", time.time() - t)
 
 
 # Now we can plan a trajectory between the two modes
-start_pose = static_dict['Y_NEG'][3].UniformSample(RandomGenerator())
-end_pose = dynamic_dict['X_POS'][0].UniformSample(RandomGenerator())
+# start_pose = static_dict['Y_NEG'][3].UniformSample(RandomGenerator())
+# goal_pose = dynamic_dict['X_POS'][0].UniformSample(RandomGenerator())
 print("Planning from start:", start_pose)
 print("To end:", end_pose)
 t = time.time()
