@@ -27,6 +27,9 @@ test_end_pose[-2] = 0.0
 # test_start_pose = np.array(config["eval"]["start_pose"])
 # test_end_pose = np.array([0, 0, 1, 0, 0, 0, 0.3])
 
+point_in_set = lambda pose, node: special_in_hull(np.array([np.hstack((pose[4:], pose[:4]))]), node.spatial_set.equations, node.orientation_set.equations, 1e-12)
+
+
 # Load up primitive and tabletop sets
 with open("output/set_gen_static.pkl", "rb") as f:
     static_sets = pickle.load(f)
@@ -46,8 +49,8 @@ static_dict = {}
 for contact_mode_name in free_space_sets.keys():
     
     
-    if contact_mode_name not in ['Y_NEG', 'X_POS']:
-        continue
+    #if contact_mode_name not in ['Y_NEG', 'X_POS']:
+    #    continue
     
     
     dynamic_dict[contact_mode_name] = []
