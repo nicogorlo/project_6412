@@ -18,19 +18,11 @@ from sklearn.neighbors import KDTree
 """
 with open(ROOT_DIR / "config" / "config.yaml", "rb") as f:
     config = yaml.load(f, Loader=yaml.FullLoader)
-<<<<<<< Updated upstream
-test_start_pose = np.array(config["eval"]["A1"]["start_pose"])
-test_start_pose[-1] = 0.17
-test_end_pose = np.array(config["eval"]["A1"]["goal_pose"])
-test_end_pose[-1] = 0.3
-test_end_pose[-2] = 0.0
-=======
 # test_start_pose = np.array(config["eval"]["start_pose"])
 # test_start_pose[-1] = 0.17
 # test_end_pose = np.array(config["eval"]["goal_pose"])
 # test_end_pose[-1] = 0.3
 # test_end_pose[-2] = 0.0
->>>>>>> Stashed changes
 
 
 # NICO START GOAL OVERRIDE
@@ -66,11 +58,7 @@ for contact_mode_name in free_space_sets.keys():
     #    continue
     
     dynamic_dict[contact_mode_name] = []
-<<<<<<< Updated upstream
     for node in free_space_sets[contact_mode_name].nodes: # [-NUM_SETS:]:
-=======
-    for node in free_space_sets[contact_mode_name].nodes:
->>>>>>> Stashed changes
         convex_hull = node.set
         total_pts.append(convex_hull.points)
         convex_set = HPolyhedron(
@@ -81,7 +69,6 @@ for contact_mode_name in free_space_sets.keys():
         )
         dynamic_dict[contact_mode_name].append(convex_set)
         
-<<<<<<< Updated upstream
         """
         test_pt_included = convex_set.PointInSet(test_start_pose)
         # test_pt_included = special_in_hull(np.array([np.hstack((test_start_pose[4:], test_start_pose[:4]))]), node.spatial_set.equations, node.orientation_set.equations, 1e-12)
@@ -90,27 +77,13 @@ for contact_mode_name in free_space_sets.keys():
         test_pt_included = convex_set.PointInSet(test_end_pose)
         # test_pt_included = special_in_hull(np.array([np.hstack((test_end_pose[4:], test_end_pose[:4]))]), node.spatial_set.equations, node.orientation_set.equations, 1e-12)
         if test_pt_included:
-            print(f"test end pose in dynamic set: {contact_mode_name}")"""
-=======
-        
-        # test_pt_included = convex_set.PointInSet(test_start_pose)
-        # # test_pt_included = special_in_hull(np.array([np.hstack((test_start_pose[4:], test_start_pose[:4]))]), node.spatial_set.equations, node.orientation_set.equations, 1e-12)
-        # if test_pt_included:
-        #     print(f"test start pose in dynamic set: {contact_mode_name}")
-        # test_pt_included = convex_set.PointInSet(test_end_pose)
-        # # test_pt_included = special_in_hull(np.array([np.hstack((test_end_pose[4:], test_end_pose[:4]))]), node.spatial_set.equations, node.orientation_set.equations, 1e-12)
-        # if test_pt_included:
-        #     print(f"test end pose in dynamic set: {contact_mode_name}")
->>>>>>> Stashed changes
+            print(f"test end pose in dynamic set: {contact_mode_name}")
+        """
     
 
 
     static_dict[contact_mode_name] = []
-<<<<<<< Updated upstream
     for node in static_sets[contact_mode_name].nodes: #[-NUM_SETS:]:
-=======
-    for node in static_sets[contact_mode_name].nodes:
->>>>>>> Stashed changes
         convex_hull = node.set
         total_pts.append(convex_hull.points)
         convex_set = HPolyhedron(
@@ -121,7 +94,6 @@ for contact_mode_name in free_space_sets.keys():
         )
         static_dict[contact_mode_name].append(convex_set)
         
-<<<<<<< Updated upstream
         """
         test_pt_included = convex_set.PointInSet(test_start_pose)
         # test_pt_included = special_in_hull(np.array([np.hstack((test_start_pose[4:], test_start_pose[:4]))]), node.spatial_set.equations, node.orientation_set.equations, 1e-12)
@@ -135,22 +107,6 @@ for contact_mode_name in free_space_sets.keys():
 
 
     for node in goal_conditioned_sets[contact_mode_name].nodes: #[-NUM_SETS:]:
-=======
-        # test_pt_included = convex_set.PointInSet(test_start_pose)
-        # # test_pt_included = special_in_hull(np.array([np.hstack((test_start_pose[4:], test_start_pose[:4]))]), node.spatial_set.equations, node.orientation_set.equations, 1e-12)
-        # if test_pt_included:
-        #     print(f"test start pose in static set: {contact_mode_name}")
-        # test_pt_included = convex_set.PointInSet(test_end_pose)
-        # # test_pt_included = special_in_hull(np.array([np.hstack((test_end_pose[4:], test_end_pose[:4]))]), node.spatial_set.equations, node.orientation_set.equations, 1e-12)
-        # if test_pt_included:
-        #     print(f"test end pose in static set: {contact_mode_name}")
-
-
-
-
-
-    for node in goal_conditioned_sets[contact_mode_name].nodes:
->>>>>>> Stashed changes
         convex_hull = node.set
         total_pts.append(convex_hull.points)
         convex_set = HPolyhedron(
@@ -161,7 +117,6 @@ for contact_mode_name in free_space_sets.keys():
         )
         dynamic_dict[contact_mode_name].append(convex_set)
 
-<<<<<<< Updated upstream
         """
         test_pt_included = convex_set.PointInSet(test_start_pose)
         # test_pt_included = special_in_hull(np.array([np.hstack((test_start_pose[4:], test_start_pose[:4]))]), node.spatial_set.equations, node.orientation_set.equations, 1e-12)
@@ -172,16 +127,6 @@ for contact_mode_name in free_space_sets.keys():
         if test_pt_included:
             print(f"test end pose in goal-cond dynamic set: {contact_mode_name}")
         """
-=======
-        # test_pt_included = convex_set.PointInSet(test_start_pose)
-        # # test_pt_included = special_in_hull(np.array([np.hstack((test_start_pose[4:], test_start_pose[:4]))]), node.spatial_set.equations, node.orientation_set.equations, 1e-12)
-        # if test_pt_included:
-        #     print(f"test start pose in goal-cond dynamic set: {contact_mode_name}")
-        # test_pt_included = convex_set.PointInSet(test_end_pose)
-        # # test_pt_included = special_in_hull(np.array([np.hstack((test_end_pose[4:], test_end_pose[:4]))]), node.spatial_set.equations, node.orientation_set.equations, 1e-12)
-        # if test_pt_included:
-        #     print(f"test end pose in goal-cond dynamic set: {contact_mode_name}")
->>>>>>> Stashed changes
 
 
 total_pts = np.concatenate(total_pts)
