@@ -55,7 +55,7 @@ print("GCS Planner created!")
 # Now we can plan a trajectory between the two modes
 start_point = np.array([start_x, start_y])
 end_point = np.array([end_x, end_y])
-trajectory = gcs_planner.solve_plan(start_point, end_point)
+trajectory, _ = gcs_planner.solve_plan(start_point, end_point)
 
 print("Trajectory:", trajectory)
 
