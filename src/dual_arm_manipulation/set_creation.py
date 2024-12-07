@@ -195,9 +195,9 @@ class Node:
         if self.set is None:
             self.gen_set()
         if len(self.points) < 1000:
-            return in_hull(self.points, self.set.equations)
+            return in_hull(self.points, self.set)
         else:
-            return in_hull(item, self.set.equations)
+            return in_hull(item, self.set)
 
     def convert_to_drake(self):
         """Converts the scipy convex hull objet to a drake object"""
@@ -727,7 +727,7 @@ class SetGen:
 
 def main():
     # load in the data:
-    scenario = "primitives_high_coverage"  # "tabletop" or "full" or "primitives" or "primitives_high_coverage"
+    scenario = "goal_conditioned"  # "tabletop" or "full" or "primitives" or "primitives_high_coverage" or "goal_conditioned"
 
     with open(ROOT_DIR / f"output/trajectories_{scenario}.pkl", "rb") as f:
         out_structure = pickle.load(f)

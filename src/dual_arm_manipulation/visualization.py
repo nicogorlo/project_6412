@@ -31,7 +31,7 @@ from dual_arm_manipulation.contact_mode import ContactMode
 from dual_arm_manipulation.trajectory_primitives import TrajectoryPrimitives, TrajectoryPrimitive
 from dual_arm_manipulation.sampler import PrimitiveSampler
 from dual_arm_manipulation.set_creation import SetGen, Node
-from dual_arm_manipulation.utils import interpolate_6dof_poses, get_free_faces, pose_vec_to_transform_position_first, rotation_matrix_from_vectors
+from dual_arm_manipulation.utils import interpolate_6dof_poses, get_free_faces, pose_vec_to_transform_position_first, rotation_matrix_from_vectors, split_timeseries_by_label
 
 def visualise_trajectory_poses(visualizer: MeshcatVisualizer, poses: list[RigidTransform]):
     """
@@ -63,7 +63,33 @@ def visualize_sample_trajectories(plant: MultibodyPlant, plant_context: Context,
             plant.SetPositions(plant_context, q)
             root_diagram.ForcedPublish(root_context)
 
-            time.sleep(0.01)
+            time.sleep(0.05)
+
+
+def visualize_result(plant: MultibodyPlant, plant_context: Context, root_diagram: Diagram, root_context: Context, contact_modes: list[ContactMode], trajectory: list[RigidTransform], contact_mode_per_sample: list[str], visualizer: MeshcatVisualizer):
+
+    assert len(trajectory) == len(contact_mode_per_sample), "Trajectory and contact mode per sample must have the same length."
+
+    traj_fragments_contact_modes = zip(trajectory, contact_mode_per_sample)
+
+    sampler = PrimitiveSampler(plant, plant_context, trajectory[0], trajectory[1], contact_modes, simulate=False, config_path=ROOT_DIR / "config" / "config.yaml")
+
+    fragments, labels = split_timeseries_by_label(contact_mode_per_sample, trajectory)
+
+    for fragment, label in zip(fragments, labels):
+        solution = sampler.ik_trajectory(fragment, ContactMode(label))
+
+        visualise_trajectory_poses(visualizer, fragment)
+            
+        for i, (tp_pose, q) in enumerate(zip(fragment, solution)):
+            if q is None:
+                print(f"Skipping {i}, no solution here.")
+                continue
+            
+            plant.SetPositions(plant_context, q)
+            root_diagram.ForcedPublish(root_context)
+
+            time.sleep(0.05)
 
 
 def visualize_generated_sets(plant: MultibodyPlant, plant_context: Context, root_diagram: Diagram, root_context: Context, set_gen: SetGen, visualizer: MeshcatVisualizer):
@@ -132,8 +158,23 @@ def animate_sets(
             q = q_next
 
 
+def project_to_2D(vecs: np.ndarray) -> np.ndarray:
+    """
+    Project the trajectory to the 2D case using vectorized operations.
+    """
+    quaternions = vecs[:, 3:]
+    
+    cos_yaw, sin_yaw = quaternion_to_cos_sin_yaw(
+        quaternions[:, 0], quaternions[:, 1], quaternions[:, 2], quaternions[:, 3]
+    )
+    
 
-def visualize_4D_sets(sampler: PrimitiveSampler):
+    trajectory_2d = np.column_stack((vecs[:, 0], vecs[:, 1], cos_yaw, sin_yaw))
+    
+    return trajectory_2d
+
+
+def visualize_4D_sets(sampler: PrimitiveSampler, sets: dict[SetGen]):
     """
     Visualize the 4D sets of poses and orientations for each contact mode.
     Creates a plot for each contact mode, showing the 2D convex hull of positions as well as arrows indicating the extent of orientations
@@ -152,6 +193,10 @@ def visualize_4D_sets(sampler: PrimitiveSampler):
     axes = axes.flatten()
 
     for idx, contact_mode in enumerate(contact_modes):
+
+        ax = axes[idx]
+
+        contact_mode_sets = sets[contact_mode]
         poses_2d = []
         poses_2d_negative = []
         for trajectory_sample in sampler.trajectory_primitives[contact_mode]:
@@ -168,38 +213,7 @@ def visualize_4D_sets(sampler: PrimitiveSampler):
         positions = poses_2d[:, :2]
         orientations = poses_2d[:, 2:]
 
-        # Compute the convex hull of positions (x, y)
-        hull2d = ConvexHull(positions)
-        hull_points = positions[hull2d.vertices]
-        hull_polygon = Polygon(hull_points)
-
-        # grid
-        x_min, y_min = hull_points.min(axis=0)
-        x_max, y_max = hull_points.max(axis=0)
-        grid_x, grid_y = np.meshgrid(
-            np.linspace(x_min, x_max, 12),
-            np.linspace(y_min, y_max, 12)
-        )
-        grid_points = np.c_[grid_x.ravel(), grid_y.ravel()]
-
-        # grid points inside convex hull
-        hull_delaunay = Delaunay(hull_points)
-        inside = hull_delaunay.find_simplex(grid_points) >= 0
-        grid_points_inside = grid_points[inside]
-
-        ax = axes[idx]
-
-        # convex hull of positions
-        hull_points = np.vstack([hull_points, hull_points[0]])
-        ax.plot(hull_points[:, 0], hull_points[:, 1], 'r--', lw=2)
-        ax.fill(hull_points[:, 0], hull_points[:, 1], 'lightgrey', alpha=0.5)
-        # ax.plot(positions[:, 0], positions[:, 1], 'o', markersize=2)
-
-        # convex hull inequalities in 4D
-        hull4d = ConvexHull(poses_2d)
-        A = hull4d.equations[:, :4]
-        b = -hull4d.equations[:, 4]
-        
+        # samples
         for pose in poses_2d[::2]:
             x, y, q1, q2 = pose
             ax.plot(x, y, 'go', markersize=2, alpha=0.3)
@@ -210,52 +224,89 @@ def visualize_4D_sets(sampler: PrimitiveSampler):
             ax.plot(x, y, 'ro', markersize=2, alpha=0.3)
             ax.arrow(x, y, q1*0.05, q2*0.05, head_width=0.01, head_length=0.01, length_includes_head=True, overhang=0.005, fc='r', ec='r', alpha=0.3)
 
-        # For each grid point, compute extent of orientations
-        for point in tqdm(grid_points_inside, desc=f'Processing {contact_mode}'):
-            x, y = point
+        colors_sets = plt.colormaps['rainbow'](np.linspace(0, 1, len(contact_mode_sets.nodes)))
+        for node in contact_mode_sets.nodes:
 
-            # inequalities for q1 and q2
-            # fixed x and y -> inequalities become linear in q1 and q2
-            A_q = A[:, 2:]
-            c = b - A[:, 0] * x - A[:, 1] * y 
+            poses_2d_node = project_to_2D(node.points)
+            positions_node = poses_2d_node[:, :2]
+            
+            # Compute the convex hull of positions (x, y)
+            hull2d = ConvexHull(positions_node)
+            hull_points = positions_node[hull2d.vertices]
+            hull_polygon = Polygon(hull_points)
 
-            theta_samples = np.linspace(-np.pi, np.pi, 36)
-            feasible_orientations = []
+            # grid
+            x_min, y_min = hull_points.min(axis=0)
+            x_max, y_max = hull_points.max(axis=0)
+            grid_x, grid_y = np.meshgrid(
+                np.linspace(x_min, x_max, 12),
+                np.linspace(y_min, y_max, 12)
+            )
+            grid_points = np.c_[grid_x.ravel(), grid_y.ravel()]
 
-            for theta in theta_samples:
-                q1 = np.cos(theta)
-                q2 = np.sin(theta)
+            # grid points inside convex hull
+            hull_delaunay = Delaunay(hull_points)
+            inside = hull_delaunay.find_simplex(grid_points) >= 0
+            grid_points_inside = grid_points[inside]
 
-                # check cnovex hull inequalities for point
-                lhs = np.dot(A_q, np.array([q1, q2]))
-                if np.all(lhs <= c + 1e-3):
-                    feasible_orientations.append((q1, q2))
+            # convex hull of positions
+            hull_points = np.vstack([hull_points, hull_points[0]])
+            ax.plot(hull_points[:, 0], hull_points[:, 1], 'r--', lw=2)
+            ax.fill(hull_points[:, 0], hull_points[:, 1], 'lightgrey', alpha=0.5)
+            # ax.plot(positions_node[:, 0], positions_node[:, 1], 'o', markersize=2)
 
-            print(f"N Feasible orientations: {len(feasible_orientations)}")
+            # convex hull inequalities in 4D
+            hull4d = ConvexHull(poses_2d_node)
+            A = hull4d.equations[:, :4]
+            b = -hull4d.equations[:, 4]
+            
 
-            for feasible_orientation in feasible_orientations:
+            # For each grid point, compute extent of orientations
+            for point in tqdm(grid_points_inside, desc=f'Processing {contact_mode}'):
+                x, y = point
 
-                [ax.arrow(x, y, feasible_orientation[0]*0.05, feasible_orientation[1]*0.05, head_width=0.01, head_length=0.01, length_includes_head=True, overhang=0.005, fc='b', ec='b')]
+                # inequalities for q1 and q2
+                # fixed x and y -> inequalities become linear in q1 and q2
+                A_q = A[:, 2:]
+                c = b - A[:, 0] * x - A[:, 1] * y 
 
-                # min_theta = min(feasible_orientations)
-                # max_theta = max(feasible_orientations)
-                # mean_theta = (min_theta + max_theta) / 2
-                # angle_extent = (max_theta - min_theta) * 180 / np.pi
+                theta_samples = np.linspace(-np.pi, np.pi, 36)
+                feasible_orientations = []
 
-                # Plot the cone
-                # cone = patches.Wedge(
-                #     (x, y), 0.05,
-                #     min_theta * 180 / np.pi,
-                #     max_theta * 180 / np.pi,
-                #     width=0.05,
-                #     color='blue', alpha=0.3
-                # )
-                # ax.add_patch(cone)
+                for theta in theta_samples:
+                    q1 = np.cos(theta)
+                    q2 = np.sin(theta)
 
-                # # Optionally, plot an arrow indicating the mean orientation
-                # dx = 0.1 * np.cos(mean_theta)
-                # dy = 0.1 * np.sin(mean_theta)
-                # ax.arrow(x, y, dx, dy, head_width=0.02, head_length=0.03, fc='k', ec='k')
+                    # check convex hull inequalities for point
+                    lhs = np.dot(A_q, np.array([q1, q2]))
+                    if np.all(lhs <= c + 1e-3):
+                        feasible_orientations.append((q1, q2))
+
+                print(f"N Feasible orientations: {len(feasible_orientations)}")
+
+                for feasible_orientation in feasible_orientations:
+
+                    [ax.arrow(x, y, feasible_orientation[0]*0.05, feasible_orientation[1]*0.05, head_width=0.01, head_length=0.01, length_includes_head=True, overhang=0.005, fc='b', ec='b')]
+
+                    # min_theta = min(feasible_orientations)
+                    # max_theta = max(feasible_orientations)
+                    # mean_theta = (min_theta + max_theta) / 2
+                    # angle_extent = (max_theta - min_theta) * 180 / np.pi
+
+                    # Plot the cone
+                    # cone = patches.Wedge(
+                    #     (x, y), 0.05,
+                    #     min_theta * 180 / np.pi,
+                    #     max_theta * 180 / np.pi,
+                    #     width=0.05,
+                    #     color='blue', alpha=0.3
+                    # )
+                    # ax.add_patch(cone)
+
+                    # # Optionally, plot an arrow indicating the mean orientation
+                    # dx = 0.1 * np.cos(mean_theta)
+                    # dy = 0.1 * np.sin(mean_theta)
+                    # ax.arrow(x, y, dx, dy, head_width=0.02, head_length=0.03, fc='k', ec='k')
 
         
 
@@ -268,7 +319,7 @@ def visualize_4D_sets(sampler: PrimitiveSampler):
         fig.delaxes(axes[idx])
 
     plt.tight_layout()
-    plt.savefig('all_contact_modes.png')
+    plt.savefig(ROOT_DIR / "output" / 'all_contact_modes.png')
     plt.show()
     print("Finished visualizing all contact modes.")
 
@@ -288,6 +339,9 @@ def quaternion_to_cos_sin_yaw(qw, qx, qy, qz):
     
     # Compute sin(yaw)
     sin_yaw = 2 * (qw * qz + qx * qy)
+
+    # normalize
+    cos_yaw, sin_yaw = [cos_yaw, sin_yaw] / np.linalg.norm([cos_yaw, sin_yaw])
     
     return cos_yaw, sin_yaw
 
