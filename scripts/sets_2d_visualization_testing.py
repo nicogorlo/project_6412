@@ -48,12 +48,13 @@ from dual_arm_manipulation.contact_mode import ContactMode
 from dual_arm_manipulation.sampler import PrimitiveSampler
 from dual_arm_manipulation.visualization import visualize_sample_trajectories, visualise_trajectory_poses, visualize_4D_sets
 from dual_arm_manipulation.utils import interpolate_6dof_poses, get_free_faces, pose_vec_to_transform, rotation_matrix_from_vectors
-from dual_arm_manipulation.set_creation import SetGen
+from dual_arm_manipulation.set_creation import SetGen, Node
 import yaml
 
 
 def main():
 
+    
     with open(ROOT_DIR / "config" / "config.yaml", "r") as f:
         cfg = yaml.load(f, Loader=yaml.FullLoader)
 
@@ -69,16 +70,18 @@ def main():
     diagram_context = diagram.CreateDefaultContext()
     scene_graph_context = scene_graph.GetMyMutableContextFromRoot(diagram_context)
 
-    start_pose = pose_vec_to_transform(cfg["eval"]["start_pose"])
-    goal_pose = pose_vec_to_transform(cfg["eval"]["goal_pose"])
+    start_pose = pose_vec_to_transform(cfg["start_pose"])
+    goal_pose = pose_vec_to_transform(cfg["goal_pose"])
 
     contact_mode_names = cfg["sampler"]["contact_modes"].keys()
     contact_modes = [ContactMode(name, cfg) for name in contact_mode_names]
 
     sampler = PrimitiveSampler(plant, plant_context, start_pose, goal_pose, contact_modes, simulate=False, config_path=ROOT_DIR / "config" / "config.yaml")
-    sampler.load_from_file("trajectories_tabletop.pkl")
+    sampler.load_from_file("trajectories_static.pkl")
         
-    visualize_4D_sets(sampler)
+    with open(ROOT_DIR / "output" / "set_gen_static.pkl", "rb") as f:
+        set_gen = pickle.load(f)
+    visualize_4D_sets(sampler, set_gen)
 
 if __name__ == "__main__":
     main()

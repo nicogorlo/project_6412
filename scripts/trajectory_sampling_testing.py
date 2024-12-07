@@ -97,6 +97,8 @@ import yaml
 
 def main():
 
+    scenario = "dataset_goal_conditioned"
+
     with open(ROOT_DIR / "config" / "config.yaml", "r") as f:
         cfg = yaml.load(f, Loader=yaml.FullLoader)
 
@@ -119,8 +121,8 @@ def main():
 
     num_positions = plant.num_positions(plant.GetModelInstanceByName("movable_cuboid"))
     print(f"Number of positions: {num_positions}")
-    start_pose = pose_vec_to_transform(cfg["eval"]["start_pose"])
-    goal_pose = pose_vec_to_transform(cfg["eval"]["goal_pose"])
+    start_pose = pose_vec_to_transform(cfg["start_pose"])
+    goal_pose = pose_vec_to_transform(cfg["goal_pose"])
 
     AddMeshcatTriad(
             visualizer, "goal_pose", length=0.1, radius=0.006, X_PT=goal_pose
@@ -131,15 +133,32 @@ def main():
     n_rotations = cfg["sampler"]["tabletop_configurations"]["n_rotations"]
 
     sampler = PrimitiveSampler(plant, plant_context, start_pose, goal_pose, contact_modes, simulate=False, config_path=ROOT_DIR / "config" / "config.yaml")
-    # sampler.tabletop_trajectory_samples(np.array([[-0.3, 0.3],[-0.5, 0.5]]), 100, 30)
-    
-    # sampler.save_to_file("trajectories_tabletop.pkl") # either this line or the next, not both
-    # sampler.load_from_file("trajectories_tabletop.pkl")
-        
-    sampler.get_traj_primitives()
-    sampler.get_goal_conditioned_tabletop_configurations()
 
-    sampler.save_to_file("trajectories_primitives.pkl")
+    # sampler.load_from_file("trajectories_primitives_large_scale.pkl")
+
+    if scenario == "tabletop":
+        sampler.tabletop_trajectory_samples(np.array([[-0.3, 0.3],[-0.5, 0.5]]), 100, cfg["sampler"]["num_steps"])
+        sampler.save_to_file("trajectories_static.pkl") # either this line or the next, not both
+    elif scenario == "primitives":
+        sampler.get_traj_primitives()
+        # sampler.get_goal_conditioned_tabletop_configurations()
+        sampler.save_to_file("trajectories_primitives.pkl")
+    elif scenario == "goal_conditioned":
+        sampler.get_goal_conditioned_tabletop_configurations()
+        sampler.save_to_file("trajectories_goal_conditioned.pkl")
+    elif scenario == "full":
+        sampler.tabletop_trajectory_samples(np.array([[-0.3, 0.3],[-0.5, 0.5]]), 100, cfg["sampler"]["num_steps"])
+        sampler.get_traj_primitives()
+        sampler.get_goal_conditioned_tabletop_configurations()
+        sampler.save_to_file("trajectories_full.pkl")
+
+    elif scenario == "dataset_goal_conditioned":
+        for name, eval in cfg['eval'].items():
+            start_pose = pose_vec_to_transform(eval["start_pose"])
+            goal_pose = pose_vec_to_transform(eval["goal_pose"])
+            sampler = PrimitiveSampler(plant, plant_context, start_pose, goal_pose, contact_modes, simulate=False, config_path=ROOT_DIR / "config" / "config.yaml")
+            sampler.get_goal_conditioned_tabletop_configurations()
+            sampler.save_to_file(f"trajectories_goal_conditioned_{name}.pkl")
 
     for contact_mode in contact_modes:
         assert len(sampler.trajectory_primitives[contact_mode.name].primitives) == len(sampler.ik_solutions[contact_mode.name])

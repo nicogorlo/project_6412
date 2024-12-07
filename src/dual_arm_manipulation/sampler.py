@@ -19,6 +19,7 @@ from dual_arm_manipulation.contact_mode import ContactMode
 from dual_arm_manipulation.trajectory_primitives import (
     TrajectoryPrimitives,
     TrajectoryPrimitive,
+    sample_tabletop_pose
 )
 from dual_arm_manipulation.utils import (
     pose_vec_to_transform,
@@ -97,9 +98,7 @@ class PrimitiveSampler(AbstractSampler):
 
         """
 
-        for contact_mode in tqdm(
-            self.contact_modes, "[Trajectory Primitives] Contact Mode Iteration"
-        ):
+        for contact_mode in self.contact_modes:
 
             default_pose = contact_mode.default_pose
 
@@ -111,7 +110,7 @@ class PrimitiveSampler(AbstractSampler):
 
             solutions = {}
 
-            for primitive in self.trajectory_primitives[contact_mode.name]:
+            for primitive in tqdm(self.trajectory_primitives[contact_mode.name], "[Trajectory Primitives] Primitive Iteration"):
 
                 if (
                     self.ik_solutions[contact_mode.name].get(primitive.primitive_name)
@@ -158,9 +157,7 @@ class PrimitiveSampler(AbstractSampler):
                     tabletop_rotation = rotation_matrix_from_vectors(
                         np.array([0, 0, 1]), np.array(-face_normal)
                     )
-                    tabletop_translation = np.array([0, 0, 1]) * np.linalg.norm(
-                        face_pos
-                    )
+                    tabletop_translation = np.array([0, 0, self.config["box_height"]])
                     for angle in np.linspace(
                         0,
                         2 * np.pi,
@@ -190,20 +187,29 @@ class PrimitiveSampler(AbstractSampler):
                 for idx, (tabletop_pose, solution) in enumerate(
                     zip(tabletop_sample_poses, tabletop_sample_solutions)
                 ):
-                    trajectory_primitive = TrajectoryPrimitive(
-                        f"TO_GOAL_{idx}",
-                        contact_mode,
-                        tabletop_pose,
-                        None,
-                        self.config,
-                        self.goal_pose,
-                    )
-
-                    # direct trajectories
-                    if not self.config.get("augment", False):
-                        self.trajectory_primitives[contact_mode.name].primitives.append(
-                            trajectory_primitive
+                    for i in range(3):
+                        random_translation = np.random.uniform(
+                            -0.05, 0.05, size=(3,)
                         )
+                        random_rotation = np.random.uniform(
+                            -0.05, 0.05, size=(3,)
+                        )
+                        perturb_transform = RigidTransform(
+                            RollPitchYaw(random_rotation), random_translation
+                        )
+                        trajectory_primitive = TrajectoryPrimitive(
+                            f"TO_GOAL_{idx}_{i}",
+                            contact_mode,
+                            tabletop_pose.multiply(perturb_transform),
+                            None,
+                            self.config,
+                            self.goal_pose,
+                        )
+
+                        # direct trajectories
+                        self.trajectory_primitives[contact_mode.name].primitives.append(
+                                trajectory_primitive
+                            )
                         solution = self.ik_trajectory(
                             trajectory_primitive.trajectory, contact_mode=contact_mode
                         )
@@ -211,24 +217,24 @@ class PrimitiveSampler(AbstractSampler):
                             trajectory_primitive.primitive_name
                         ] = solution
 
-                    # random perturbations around trajectories
-                    if self.config.get("augment", False):
-                        randomized_samples = self.trajectory_primitives[
-                            contact_mode_name
-                        ].generate_perturbed_trajectories(
-                            trajectory_primitive, trajectory_primitive.primitive_name, 3
-                        )
-                        self.trajectory_primitives[contact_mode_name].primitives.extend(
-                            randomized_samples
-                        )
-
-                        for sample in randomized_samples:
-                            solution = self.ik_trajectory(
-                                sample.trajectory, contact_mode=contact_mode
+                        # random perturbations around trajectories
+                        if self.config.get("augment", False):
+                            randomized_samples = self.trajectory_primitives[
+                                contact_mode_name
+                            ].generate_perturbed_trajectories(
+                                trajectory_primitive, trajectory_primitive.primitive_name, 3
                             )
-                            self.ik_solutions[contact_mode.name][
-                                sample.primitive_name
-                            ] = solution
+                            self.trajectory_primitives[contact_mode_name].primitives.extend(
+                                randomized_samples
+                            )
+
+                            for sample in randomized_samples:
+                                solution = self.ik_trajectory(
+                                    sample.trajectory, contact_mode=contact_mode
+                                )
+                                self.ik_solutions[contact_mode.name][
+                                    sample.primitive_name
+                                ] = solution
 
         return sample_final_contact_modes
 
@@ -248,10 +254,10 @@ class PrimitiveSampler(AbstractSampler):
         for sample_id in tqdm(range(n_samples)):
 
             for contact_mode in self.contact_modes:
-                start_pose = self.sample_tabletop_pose(bounding_box, contact_mode)
-                goal_pose = self.sample_tabletop_pose(bounding_box, contact_mode)
+                start_pose = sample_tabletop_pose(bounding_box, contact_mode, self.config)
+                goal_pose = sample_tabletop_pose(bounding_box, contact_mode, self.config)
                 trajectory_primitive = TrajectoryPrimitive(
-                    f"TO_GOAL_{sample_id}",
+                    f"TO_GOAL_INCREMENTAL_{sample_id}",
                     contact_mode,
                     start_pose,
                     None,
@@ -281,19 +287,6 @@ class PrimitiveSampler(AbstractSampler):
                     ]
                 )
 
-    def sample_tabletop_pose(self, bounding_box, contact_mode: ContactMode):
-        """
-        Samples a random pose on the tabletop.
-        """
-        x = random.uniform(bounding_box[0, 0], bounding_box[0, 1])
-        y = random.uniform(bounding_box[1, 0], bounding_box[1, 1])
-        z = self.config["box_height"]
-
-        # random upright rotation matrix
-        yaw = random.uniform(-np.pi, np.pi)
-        return RigidTransform(RollPitchYaw(0, 0, yaw), [x, y, z]).multiply(
-            RigidTransform(contact_mode.default_pose.rotation(), [0, 0, 0])
-        )
 
     def ik_trajectory(self, tp_traj, contact_mode=ContactMode()):
         """

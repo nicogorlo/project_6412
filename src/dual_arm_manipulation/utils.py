@@ -55,6 +55,40 @@ def interpolate_6dof_poses(start_pose: np.ndarray, goal_pose: np.ndarray, n_step
     return interpolated_poses
 
 
+def split_timeseries_by_label(
+    labels: list[str], 
+    transforms: list[RigidTransform]
+) -> Tuple[list[list[RigidTransform]], list[str]]:
+
+    assert len(labels) == len(transforms), "labels and transforms must have the same length"
+    
+    if not labels:
+        return []
+    
+    fragments: list[list[RigidTransform]] = []
+    frag_labels: list[str] = [labels[0]]
+    current_label = labels[0]
+    current_fragment: list[RigidTransform] = []
+    
+    for lbl, tr in zip(labels, transforms):
+        if lbl != current_label:
+
+            if current_fragment:
+                fragments.append(current_fragment)
+            current_fragment = [tr]
+            current_label = lbl
+            frag_labels.append(lbl)
+        else:
+            current_fragment.append(tr)
+    
+
+    if current_fragment:
+        fragments.append(current_fragment)
+
+    assert len(fragments) == len(frag_labels), "Number of fragments and fragment labels must be the same"
+    return fragments, frag_labels
+
+
 def get_free_faces(contact_mode_name: str, contact_modes: dict):
     for axis in ['X', 'Y', 'Z']:
         if contact_mode_name.startswith(axis):
