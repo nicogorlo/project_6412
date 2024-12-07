@@ -89,7 +89,7 @@ def visualize_result(plant: MultibodyPlant, plant_context: Context, root_diagram
             plant.SetPositions(plant_context, q)
             root_diagram.ForcedPublish(root_context)
 
-            time.sleep(0.05)
+            time.sleep(0.5)
 
 
 def visualize_generated_sets(plant: MultibodyPlant, plant_context: Context, root_diagram: Diagram, root_context: Context, set_gen: SetGen, visualizer: MeshcatVisualizer):

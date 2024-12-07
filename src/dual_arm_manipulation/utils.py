@@ -138,6 +138,13 @@ def pose_vec_to_transform(pose_vec: ArrayLike) -> RigidTransform:
     """
     return RigidTransform(RotationMatrix(Quaternion(pose_vec[:4]/np.linalg.norm(pose_vec[:4]))), p=pose_vec[4:])
 
+def transform_to_pose_vec(transform: RigidTransform) -> np.ndarray:
+    """
+    Compute the 7d pose vec (qw, qx, qy, qz, x, y, z) from a rigid transform.
+    """
+    return np.hstack((transform.rotation().ToQuaternion().wxyz() , transform.translation()))
+
+
 def pose_vec_to_transform_position_first(pose_vec: ArrayLike) -> RigidTransform:
     """
     Compute the rigid transform from 7d pose vec (x, y, z, qw, qx, qy, qz).

@@ -3,6 +3,7 @@ from typing import Optional
 from pydrake.systems.framework import LeafContext
 
 from pydrake.all import (
+    MeshcatVisualizer,
     RigidTransform,
     RotationMatrix,
     Quaternion,
@@ -12,6 +13,8 @@ from pydrake.all import (
     InverseKinematics,
     Solve
 )
+
+from manipulation.meshcat_utils import AddMeshcatTriad
 
 from pathlib import Path
 from dual_arm_manipulation import ROOT_DIR
@@ -23,6 +26,7 @@ from dual_arm_manipulation.trajectory_primitives import (
 )
 from dual_arm_manipulation.utils import (
     pose_vec_to_transform,
+    transform_to_pose_vec,
     rotation_matrix_from_vectors,
 )
 import numpy as np
@@ -69,6 +73,9 @@ class PrimitiveSampler(AbstractSampler):
         contact_modes: list[ContactMode],
         simulate: bool = False,
         config_path: Path = ROOT_DIR / "config" / "config.yaml",
+        visualizer: Optional[MeshcatVisualizer] = None,
+        root_diagram: Optional[Diagram] = None,
+        root_context: Optional[LeafContext] = None,
     ):
         super().__init__(plant, plant_context, simulate)
 
@@ -77,6 +84,10 @@ class PrimitiveSampler(AbstractSampler):
         self.start_pose: RigidTransform = start_pose
         self.goal_pose: RigidTransform = goal_pose
         self.contact_modes = contact_modes
+
+        self.visualizer = visualizer
+        self.root_diagram = root_diagram
+        self.root_context = root_context
 
         self.trajectory_primitives: dict[str, TrajectoryPrimitives] = {
             mode.name: TrajectoryPrimitives(mode.default_pose, mode, self.config)
@@ -269,11 +280,32 @@ class PrimitiveSampler(AbstractSampler):
                         else {}
                     ),
                 )
-                self.trajectory_primitives[contact_mode.name].primitives.append(
-                    trajectory_primitive
-                )
+
                 solution = self.ik_trajectory(
                     trajectory_primitive.trajectory, contact_mode=contact_mode
+                )
+
+                rotated_transforms: list[RigidTransform] = []
+                rotated_static_solutions: list[np.ndarray] = []
+
+                for transform, qs in zip(trajectory_primitive.trajectory, solution):
+                    for angle in [np.pi /2, np.pi, 3 * np.pi / 2]:
+                        rotation = contact_mode.rotate_around_contact_axis(angle)
+                        rotated_transform = transform.multiply(RigidTransform(rotation, np.zeros(3)))
+                        if qs is not None:
+                            rotated_solution = qs.copy() # TODO: rotate relevant qs
+                            rotated_solution[-7:] = transform_to_pose_vec(rotated_transform)
+                            rotated_static_solutions.append(rotated_solution)
+                        else:
+                            rotated_static_solutions.append(None)
+                        rotated_transforms.append(rotated_transform)
+
+                trajectory_primitive.trajectory.extend(rotated_transforms)
+                solution.extend(rotated_static_solutions)
+                        
+
+                self.trajectory_primitives[contact_mode.name].primitives.append(
+                    trajectory_primitive
                 )
                 self.ik_solutions[contact_mode.name][
                     trajectory_primitive.primitive_name
