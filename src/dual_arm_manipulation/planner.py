@@ -94,7 +94,6 @@ class GCSPlanner:
                     self.gcs.AddEdge(
                         v, u, name=f"intermode_{v.name()}_{u.name()}"
                     )
-        print("Inter-Mode Static Vertices Connected!")
         
     def add_edge_costs(self):
         for edge in self.gcs.Edges():
