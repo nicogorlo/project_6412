@@ -31,7 +31,7 @@ from dual_arm_manipulation.contact_mode import ContactMode
 from dual_arm_manipulation.trajectory_primitives import TrajectoryPrimitives, TrajectoryPrimitive
 from dual_arm_manipulation.sampler import PrimitiveSampler
 from dual_arm_manipulation.set_creation import SetGen, Node
-from dual_arm_manipulation.utils import interpolate_6dof_poses, get_free_faces, pose_vec_to_transform_position_first, rotation_matrix_from_vectors
+from dual_arm_manipulation.utils import interpolate_6dof_poses, get_free_faces, pose_vec_to_transform_position_first, rotation_matrix_from_vectors, split_timeseries_by_label
 
 def visualise_trajectory_poses(visualizer: MeshcatVisualizer, poses: list[RigidTransform]):
     """
@@ -56,6 +56,32 @@ def visualize_sample_trajectories(plant: MultibodyPlant, plant_context: Context,
         visualise_trajectory_poses(visualizer, trajectory_sample.trajectory)
             
         for i, (tp_pose, q) in enumerate(zip(trajectory_sample, solution)):
+            if q is None:
+                print(f"Skipping {i}, no solution here.")
+                continue
+            
+            plant.SetPositions(plant_context, q)
+            root_diagram.ForcedPublish(root_context)
+
+            time.sleep(0.05)
+
+
+def visualize_result(plant: MultibodyPlant, plant_context: Context, root_diagram: Diagram, root_context: Context, contact_modes: list[ContactMode], trajectory: list[RigidTransform], contact_mode_per_sample: list[str], visualizer: MeshcatVisualizer):
+
+    assert len(trajectory) == len(contact_mode_per_sample), "Trajectory and contact mode per sample must have the same length."
+
+    traj_fragments_contact_modes = zip(trajectory, contact_mode_per_sample)
+
+    sampler = PrimitiveSampler(plant, plant_context, trajectory[0], trajectory[1], contact_modes, simulate=False, config_path=ROOT_DIR / "config" / "config.yaml")
+
+    fragments, labels = split_timeseries_by_label(contact_mode_per_sample, trajectory)
+
+    for fragment, label in zip(fragments, labels):
+        solution = sampler.ik_trajectory(fragment, ContactMode(label))
+
+        visualise_trajectory_poses(visualizer, fragment)
+            
+        for i, (tp_pose, q) in enumerate(zip(fragment, solution)):
             if q is None:
                 print(f"Skipping {i}, no solution here.")
                 continue

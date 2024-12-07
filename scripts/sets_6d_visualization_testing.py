@@ -98,7 +98,7 @@ import yaml
 
 def main():
 
-    scenario = "static" # tabletop, primitives, full, primitives_high_coverage
+    scenario = "primitives_large_scale" # tabletop, primitives, full, primitives_high_coverage
 
     with open(ROOT_DIR / "config" / "config.yaml", "r") as f:
         cfg = yaml.load(f, Loader=yaml.FullLoader)
@@ -122,8 +122,8 @@ def main():
 
     num_positions = plant.num_positions(plant.GetModelInstanceByName("movable_cuboid"))
     print(f"Number of positions: {num_positions}")
-    start_pose = pose_vec_to_transform(cfg["eval"]["start_pose"])
-    goal_pose = pose_vec_to_transform(cfg["eval"]["goal_pose"])
+    start_pose = pose_vec_to_transform(cfg["start_pose"])
+    goal_pose = pose_vec_to_transform(cfg["goal_pose"])
 
     AddMeshcatTriad(
             visualizer, "goal_pose", length=0.1, radius=0.02, X_PT=goal_pose

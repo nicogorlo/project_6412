@@ -98,9 +98,7 @@ class PrimitiveSampler(AbstractSampler):
 
         """
 
-        for contact_mode in tqdm(
-            self.contact_modes, "[Trajectory Primitives] Contact Mode Iteration"
-        ):
+        for contact_mode in self.contact_modes:
 
             default_pose = contact_mode.default_pose
 
@@ -112,7 +110,7 @@ class PrimitiveSampler(AbstractSampler):
 
             solutions = {}
 
-            for primitive in tqdm(self.trajectory_primitives[contact_mode.name], "[Trajectory Primitives] Contact Mode Iteration"):
+            for primitive in tqdm(self.trajectory_primitives[contact_mode.name], "[Trajectory Primitives] Primitive Iteration"):
 
                 if (
                     self.ik_solutions[contact_mode.name].get(primitive.primitive_name)

@@ -54,18 +54,18 @@ class TrajectoryPrimitives:
         for primitive_name in self.config["primitives"]:
             for n in range(self.config.get("n_samples_per_primitive", 1)):
                 primitive = TrajectoryPrimitive(
-                    primitive_name, self.contact_mode, self.start_pose if n == 0 else sample_tabletop_pose(np.array(self.config.get("tabletop_bounding_box")), self.contact_mode, self.config), None, self.config
+                    f"{primitive_name}_{n}", self.contact_mode, self.start_pose if n == 0 else sample_tabletop_pose(np.array(self.config.get("tabletop_bounding_box")), self.contact_mode, self.config), None, self.config
                 )
                 if not self.config.get("augment", False):
                     self.primitives.append(primitive)
                 else:
                     trajs_augmented = self.generate_perturbed_trajectories(
                         primitive.trajectory,
-                        primitive_name,
+                        f"{primitive_name}_{n}",
                         self.config["n_rand_augmentations"],
                     )
                     print(
-                        f"Augmented {len(trajs_augmented)} trajectories for primitive: {primitive_name}"
+                        f"Augmented {len(trajs_augmented)} trajectories for primitive: {primitive_name}_{n}"
                     )
                     self.primitives.extend(trajs_augmented)
 
@@ -157,6 +157,9 @@ class TrajectoryPrimitives:
 
     def __iter__(self):
         return iter(self.primitives)
+    
+    def __len__(self):
+        return len(self.primitives)
 
 
 class TrajectoryPrimitive:
@@ -203,7 +206,7 @@ class TrajectoryPrimitive:
             return trajectory
         else:
             trajectory = []
-        if self.primitive_name == "YAW_90_cw":
+        if self.primitive_name.startswith("YAW_90_cw"):
             # Rotate by -pi/2 about the z-axis (clockwise yaw)
             delta_angle = -np.pi / 2
             num_steps = self.args.get("num_steps", 10)
@@ -216,7 +219,7 @@ class TrajectoryPrimitive:
                 pose = RigidTransform(rotation, self.start_pose.translation())
                 trajectory.append(pose)
 
-        elif self.primitive_name == "YAW_90_ccw":
+        elif self.primitive_name.startswith("YAW_90_ccw"):
             # Rotate by +pi/2 about the z-axis (counterclockwise yaw)
             delta_angle = np.pi / 2
             num_steps = self.args.get("num_steps", 10)
@@ -229,7 +232,7 @@ class TrajectoryPrimitive:
                 pose = RigidTransform(rotation, self.start_pose.translation())
                 trajectory.append(pose)
 
-        elif self.primitive_name == "ROLL_90_cw":
+        elif self.primitive_name.startswith("ROLL_90_cw"):
             # Lift up, rotate about x-axis by -pi/2 (clockwise roll), place down
             lift_height = self.args["lift_height"]
             num_steps_lift = self.args.get("num_steps_lift", 15)
@@ -267,7 +270,7 @@ class TrajectoryPrimitive:
                 pose = RigidTransform(rotation, translation)
                 trajectory.append(pose)
 
-        elif self.primitive_name == "ROLL_90_ccw":
+        elif self.primitive_name.startswith("ROLL_90_ccw"):
             # Lift up, rotate about x-axis by +pi/2 (counterclockwise roll), place down
             lift_height = self.args["lift_height"]
             num_steps_lift = self.args.get("num_steps_lift", 15)

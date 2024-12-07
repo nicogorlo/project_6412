@@ -70,8 +70,8 @@ def main():
     diagram_context = diagram.CreateDefaultContext()
     scene_graph_context = scene_graph.GetMyMutableContextFromRoot(diagram_context)
 
-    start_pose = pose_vec_to_transform(cfg["eval"]["start_pose"])
-    goal_pose = pose_vec_to_transform(cfg["eval"]["goal_pose"])
+    start_pose = pose_vec_to_transform(cfg["start_pose"])
+    goal_pose = pose_vec_to_transform(cfg["goal_pose"])
 
     contact_mode_names = cfg["sampler"]["contact_modes"].keys()
     contact_modes = [ContactMode(name, cfg) for name in contact_mode_names]

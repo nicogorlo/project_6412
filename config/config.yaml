@@ -1,6 +1,23 @@
 eval:
-  goal_pose: [1, 0, 0, 0, 0.0, 0.2, 0.6]
-  start_pose: [1, 0, 0, 0, 0.0, 0.0, 0.15]
+
+  A_1:
+    start_pose: [1, 0, 0, 0, 0.0, 0.0, 0.15]
+    goal_pose: [0, 0, 1, 0, 0.0, 0.2, 0.6]
+  
+  A_2:
+    start_pose: [1, 0, 0, 0, 0.0, 0.0, 0.15]
+    goal_pose: [0, 1, 0, 0, 0.0, -0.2, 0.6]
+
+  A_3:
+    start_pose: [1, 0, 0, 0, 0.0, 0.0, 0.15]
+    goal_pose: [0.9238795, 0, 0.3826834, 0, 0.0, -0.2, 0.6]
+
+  A_4:
+    start_pose: [1, 0, 0, 0, 0.0, 0.0, 0.15]
+    goal_pose: [0, 0, 0, 1, 0, -0.4, 0.2]
+
+goal_pose: [1, 0, 0, 0, 0.0, 0.2, 0.6]
+start_pose: [1, 0, 0, 0, 0.0, 0.0, 0.15]
 
 setup:
   fixed_cube: true
@@ -10,7 +27,7 @@ sampler:
   verbose: false
 
   augment: true
-  n_rand_augmentations: 20
+  n_rand_augmentations: 10
   augment_max_translation: 0.15
   augment_max_rotation: 0.2
   tabletop_height_variation: 0.05
@@ -26,7 +43,7 @@ sampler:
     Z_NEG: [[0, 0, -0.15], [0, 0, 0.15]]
 
   tabletop_configurations:
-    n_rotations: 5 # Number of rotations per side. n_samples = n_rotations * 6
+    n_rotations: 4 # Number of rotations per side. n_samples = n_rotations * 6
 
   box_height: 0.15
 
