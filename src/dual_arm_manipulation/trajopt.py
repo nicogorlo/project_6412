@@ -51,6 +51,7 @@ class GCSTrajOptPlanner:
             r_dynamic = self.gcs_tropt.AddRegions(list(dynamic_sets), name=f"{mode_name}_dynamic", order=self.order)
             r_static = self.gcs_tropt.AddRegions(list(static_sets), name=f"{mode_name}_static", order=self.order)
             self.subgraphs[mode_name] = (r_dynamic, r_static)
+        print("Subgraphs Added!")
 
         # connect the dynamic and static subgraphs within each mode
         for mode_name in self.modes:
@@ -58,6 +59,7 @@ class GCSTrajOptPlanner:
             static_region = self.subgraphs[mode_name][1]
             self.gcs_tropt.AddEdges(dynamic_region, static_region)
             self.gcs_tropt.AddEdges(static_region, dynamic_region)
+        print("Intra-Mode Edges Added!")
 
         # connect all the static subgraphs:
         for mode1, mode2 in combinations(self.modes, 2):
@@ -65,55 +67,13 @@ class GCSTrajOptPlanner:
             static_region2 = self.subgraphs[mode2][1]
             self.gcs_tropt.AddEdges(static_region1, static_region2)
             self.gcs_tropt.AddEdges(static_region2, static_region1)
+        print("Inter-Mode Edges Connected!")
 
-        
-        # # Make vertices for each contact mode (static and dynamic)
-        # self.mode_to_dynamic_vertices = {}
-        # self.mode_to_static_vertices = {}
-        # for mode_name in self.modes:
-        #     convex_sets = self.mode_to_sets[mode_name]
-        #     self.mode_to_dynamic_vertices[mode_name] = []
-        #     for i, convex_set in enumerate(convex_sets):
-        #         v = self.gcs.AddVertex(convex_set, name=f"{mode_name}_dynamic_{i+1}")
-        #         self.mode_to_dynamic_vertices[mode_name].append(v)
-        #     static_sets = self.mode_to_static_sets[mode_name]
-        #     self.mode_to_static_vertices[mode_name] = []
-        #     for i, static_set in enumerate(static_sets):
-        #         v = self.gcs.AddVertex(static_set, name=f"{mode_name}_static_{i+1}")
-        #         self.mode_to_static_vertices[mode_name].append(v)
-        # print("Vertices Added!")
-        
-        # # Densely connect vertices within the same contact mode (intra)
-        # for mode_name in self.modes:
-        #     dynamic_vertices = self.mode_to_dynamic_vertices[mode_name]
-        #     static_vertices = self.mode_to_static_vertices[mode_name]
-        #     all_vertices = dynamic_vertices + static_vertices
-        #     for u, v in product(all_vertices, repeat=2):
-        #         if u.id() == v.id():
-        #             continue
-        #         if u.set().IntersectsWith(v.set()):
-        #             self.gcs.AddEdge(
-        #                 u, v, name=f"intramode_{u.name()}_{v.name()}"
-        #             )
-        # print("Intra-Mode Vertices Connected!")
-        
-        # # Connect static sets between contact modes (inter)
-        # for mode1, mode2 in product(self.modes, repeat=2):
-        #     if mode1 == mode2:
-        #         continue
-        #     static_vertices1 = self.mode_to_static_vertices[mode1]
-        #     static_vertices2 = self.mode_to_static_vertices[mode2]
-        #     for u, v in product(static_vertices1, static_vertices2):
-        #         if u.set().IntersectsWith(v.set()):
-        #             self.gcs.AddEdge(
-        #                 u, v, name=f"intermode_{u.name()}_{v.name()}"
-        #             )
-        # print("Inter-Mode Static Vertices Connected!")
 
     def solve_plan(self, start_pt, end_pt):
         # add start and end regions:
-        source = self.gcs_tropt.AddRegions([Point(start_pt)], order=0)
-        target = self.gcs_tropt.AddRegions([Point(end_pt)], order=0)   
+        source = self.gcs_tropt.AddRegions([Point(start_pt)], order=0, name='start')
+        target = self.gcs_tropt.AddRegions([Point(end_pt)], order=0, name='end')
 
         # add an edge from the source with every static subgraph:
         for mode_name in self.modes:
@@ -121,7 +81,7 @@ class GCSTrajOptPlanner:
             self.gcs_tropt.AddEdges(source, static_region)
             self.gcs_tropt.AddEdges(static_region, source)
 
-        # add an edge from the target with every static subgraph:
+        # add an edge from the target with every subgraph:
         for mode_name in self.modes:
             dynamic_region = self.subgraphs[mode_name][0]
             static_region = self.subgraphs[mode_name][1]
@@ -131,58 +91,37 @@ class GCSTrajOptPlanner:
             self.gcs_tropt.AddEdges(target, dynamic_region)
             
 
-
-        # if self.start_vertex is not None:
-        #     self.gcs.RemoveVertex(self.start_vertex)
-        # if self.end_vertex is not None:
-        #     self.gcs.RemoveVertex(self.end_vertex)
-        # self.start_vertex = self.gcs.AddVertex(start_set, name="start")
-        # self.end_vertex = self.gcs.AddVertex(end_set, name="end")
-        
-        # # Connect the start to all static equilibrium vertices
-        # for mode_name in self.modes:
-        #     for static_vertex in self.mode_to_static_vertices[mode_name]:
-        #         if self.start_vertex.set().IntersectsWith(static_vertex.set()):
-        #             self.gcs.AddEdge(self.start_vertex, static_vertex, name=f"start_{static_vertex.name()}")
-                    
-        # # Connect the end to all vertices
-        # for v in self.gcs.Vertices():
-        #     if self.end_vertex.set().IntersectsWith(v.set()):
-        #         if v.id() == self.end_vertex.id():
-        #             continue
-        #         self.gcs.AddEdge(v, self.end_vertex, name=f"{v.name()}_end")
-
         print(self.gcs_tropt.GetGraphvizString())
-        '''
-        This is where we do all the configuration for constraints:
-        '''
 
+        # Configure constraints
         # self.gcs_tropt.AddTimeCost()
         self.gcs_tropt.AddPathLengthCost()
         for o in range(1, self.continuity_order + 1):
             print(f"adding C{o} constraints")
             self.gcs_tropt.AddContinuityConstraints(o)
-        [traj, result] = self.gcs_tropt.SolvePath(source, target, self.solver_options)
+        print("Solving...")
+        traj, result = self.gcs_tropt.SolvePath(source, target, self.solver_options)
         print(f"result.is_success() = {result.is_success()}")
         return traj
     
-    # def get_switches(self, wp_path, edge_path, wp_sampling_rate):
-    #     edges_accounted_for = set()
-    #     switch_wps = []
-    #     for idx, wp in enumerate(wp_path):
-    #         edge = edge_path[idx // wp_sampling_rate]
-    #         uname = edge.u().name()
-    #         vname = edge.v().name()
-    #         if "static" in uname and "static" in vname and "intermode" in edge.name():
-    #             if idx // wp_sampling_rate not in edges_accounted_for:
-    #                 if u.set().PointInSet(wp) and v.set().PointInSet(wp):
-    #                     edges_accounted_for.add(idx // wp_sampling_rate)
-    #                     static_cm_from = "_".join(uname.split('_')[:-2])
-    #                     static_cm_to = "_".join(vname.split('_')[:-2])
-    #                     t = (idx, static_cm_from, static_cm_to)
-    #                     switch_wps.append(t)
-    #     return switch_wps
-    
+    # TODO: how do we get an edge path?
+    def get_waypoints_and_switches(self, composite_traj, edge_path, num_wps=100):
+        times = np.linspace(composite_traj.start_time(), composite_traj.end_time(), num_wps).tolist()
+        segment_times = [0] + [composite_traj.segment(i).end_time() for i in range(len(edge_path))]
+        waypoints = [composite_traj.value(time) for time in times]
+        edges_accounted_for = set()
+        switch_times = []
+        for wp, t in zip(waypoints, times):
+            edge_idx = np.digitize(t, segment_times)
+            edge = edge_path[edge_idx].name()
+            u = edge.u()
+            v = edge.v()
+            if "static" in u.name() and "static" in v.name() and (not (u.name().split(":")[0] == v.name().split(":")[0])):
+                if u.set().PointInSet(wp) and v.set().PointInSet(wp) and edge_idx not in edges_accounted_for:
+                    print(f"Switching from {u.name()} to {v.name()} at time {t}")
+                    edges_accounted_for.add(edge_idx)
+                    switch_times.append(t)
+
 def test():
 
     # load in the convex sets:
@@ -262,6 +201,6 @@ def test():
 
 if __name__ == "__main__":
     print('Running test')
-    test()
+    # test()
     print('Test complete')
 
