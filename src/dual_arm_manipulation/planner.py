@@ -12,7 +12,7 @@ from pydrake.solvers import MosekSolver
 from itertools import combinations, product
 from typing import Dict, Set
 import numpy as np
-
+from tqdm import tqdm
 
 # TODO: add edge constraint for Xu solution to be in the overlapping set.
 
@@ -51,7 +51,8 @@ class GCSPlanner:
         # Make vertices for each contact mode (static and dynamic)
         self.mode_to_dynamic_vertices = {}
         self.mode_to_static_vertices = {}
-        for mode_name in self.modes:
+        print("Adding vertices!")
+        for mode_name in tqdm(self.modes):
             convex_sets = self.mode_to_sets[mode_name]
             self.mode_to_dynamic_vertices[mode_name] = []
             for i, convex_set in enumerate(convex_sets):
@@ -62,26 +63,27 @@ class GCSPlanner:
             for i, static_set in enumerate(static_sets):
                 v = self.gcs.AddVertex(static_set, name=f"{mode_name}_static_{i+1}")
                 self.mode_to_static_vertices[mode_name].append(v)
-        print("Vertices Added!")
+        
         
         # Densely connect vertices within the same contact mode (intra)
-        for mode_name in self.modes:
+        print("Adding Intra-Mode Vertices!")
+        for mode_name in tqdm(self.modes):
             dynamic_vertices = self.mode_to_dynamic_vertices[mode_name]
             static_vertices = self.mode_to_static_vertices[mode_name]
             all_vertices = dynamic_vertices + static_vertices
-            for u, v in product(all_vertices, repeat=2):
-                if u.id() == v.id():
-                    continue
+            for u, v in combinations(all_vertices, 2):
                 if u.set().IntersectsWith(v.set()):
                     self.gcs.AddEdge(
                         u, v, name=f"intramode_{u.name()}_{v.name()}"
                     )
-        print("Intra-Mode Vertices Connected!")
+                    self.gcs.AddEdge(
+                        v, u, name=f"intramode_{v.name()}_{u.name()}"
+                    )
+        
         
         # Connect static sets between contact modes (inter)
-        for mode1, mode2 in product(self.modes, repeat=2):
-            if mode1 == mode2:
-                continue
+        print("Adding Inter-Mode Vertices!")
+        for mode1, mode2 in tqdm(combinations(self.modes, 2)):
             static_vertices1 = self.mode_to_static_vertices[mode1]
             static_vertices2 = self.mode_to_static_vertices[mode2]
             for u, v in product(static_vertices1, static_vertices2):
@@ -89,7 +91,9 @@ class GCSPlanner:
                     self.gcs.AddEdge(
                         u, v, name=f"intermode_{u.name()}_{v.name()}"
                     )
-        print("Inter-Mode Static Vertices Connected!")
+                    self.gcs.AddEdge(
+                        v, u, name=f"intermode_{v.name()}_{u.name()}"
+                    )
         
     def add_edge_costs(self):
         for edge in self.gcs.Edges():
@@ -122,27 +126,32 @@ class GCSPlanner:
         self.start_vertex = self.gcs.AddVertex(start_set, name="start")
         self.end_vertex = self.gcs.AddVertex(end_set, name="end")
         
-        # Connect the start to all static equilibrium vertices
+        """# Connect the start to all static equilibrium vertices
         for mode_name in self.modes:
             for static_vertex in self.mode_to_static_vertices[mode_name]:
                 if self.start_vertex.set().IntersectsWith(static_vertex.set()):
-                    self.gcs.AddEdge(self.start_vertex, static_vertex, name=f"start_{static_vertex.name()}")
+                    self.gcs.AddEdge(self.start_vertex, static_vertex, name=f"start_{static_vertex.name()}")"""
                     
-        # Connect the end to all vertices
+        # Connect the start and end to all vertices
         for v in self.gcs.Vertices():
             if self.end_vertex.set().IntersectsWith(v.set()):
                 if v.id() == self.end_vertex.id():
                     continue
                 self.gcs.AddEdge(v, self.end_vertex, name=f"{v.name()}_end")
+            if self.start_vertex.set().IntersectsWith(v.set()):
+                if v.id() == self.start_vertex.id():
+                    continue
+                self.gcs.AddEdge(self.start_vertex, v, name=f"start_{v.name()}")
         
         # Add edge costs
         self.add_edge_costs()
-        print(self.gcs.GetGraphvizString())
+
+        print("Graph:", self.gcs.GetGraphvizString())
         
         # Solve the plan
         self.prog_result = self.gcs.SolveShortestPath(self.start_vertex, self.end_vertex, options=self.solver_options)
         print("Shortest Path Optimization Solved!")
-        edge_path = self.gcs.GetSolutionPath(self.start_vertex, self.end_vertex, self.prog_result, tolerance=0.45)
+        edge_path = self.gcs.GetSolutionPath(self.start_vertex, self.end_vertex, self.prog_result, tolerance=0.75)
         print("Greedy DFS Path Found!")
         vertex_path = [e.u() for e in edge_path]
         vertex_path.append(edge_path[-1].v())

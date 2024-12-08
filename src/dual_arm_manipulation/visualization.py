@@ -63,7 +63,7 @@ def visualize_sample_trajectories(plant: MultibodyPlant, plant_context: Context,
             plant.SetPositions(plant_context, q)
             root_diagram.ForcedPublish(root_context)
 
-            time.sleep(0.05)
+            time.sleep(0.01)
 
 
 def visualize_result(plant: MultibodyPlant, plant_context: Context, root_diagram: Diagram, root_context: Context, contact_modes: list[ContactMode], trajectory: list[RigidTransform], contact_mode_per_sample: list[str], visualizer: MeshcatVisualizer):
@@ -89,7 +89,7 @@ def visualize_result(plant: MultibodyPlant, plant_context: Context, root_diagram
             plant.SetPositions(plant_context, q)
             root_diagram.ForcedPublish(root_context)
 
-            time.sleep(0.5)
+            time.sleep(0.25)
 
 
 def visualize_generated_sets(plant: MultibodyPlant, plant_context: Context, root_diagram: Diagram, root_context: Context, set_gen: SetGen, visualizer: MeshcatVisualizer):
