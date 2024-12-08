@@ -126,18 +126,22 @@ class GCSPlanner:
         self.start_vertex = self.gcs.AddVertex(start_set, name="start")
         self.end_vertex = self.gcs.AddVertex(end_set, name="end")
         
-        # Connect the start to all static equilibrium vertices
+        """# Connect the start to all static equilibrium vertices
         for mode_name in self.modes:
             for static_vertex in self.mode_to_static_vertices[mode_name]:
                 if self.start_vertex.set().IntersectsWith(static_vertex.set()):
-                    self.gcs.AddEdge(self.start_vertex, static_vertex, name=f"start_{static_vertex.name()}")
+                    self.gcs.AddEdge(self.start_vertex, static_vertex, name=f"start_{static_vertex.name()}")"""
                     
-        # Connect the end to all vertices
+        # Connect the start and end to all vertices
         for v in self.gcs.Vertices():
             if self.end_vertex.set().IntersectsWith(v.set()):
                 if v.id() == self.end_vertex.id():
                     continue
                 self.gcs.AddEdge(v, self.end_vertex, name=f"{v.name()}_end")
+            if self.start_vertex.set().IntersectsWith(v.set()):
+                if v.id() == self.start_vertex.id():
+                    continue
+                self.gcs.AddEdge(self.start_vertex, v, name=f"start_{v.name()}")
         
         # Add edge costs
         self.add_edge_costs()
@@ -147,7 +151,7 @@ class GCSPlanner:
         # Solve the plan
         self.prog_result = self.gcs.SolveShortestPath(self.start_vertex, self.end_vertex, options=self.solver_options)
         print("Shortest Path Optimization Solved!")
-        edge_path = self.gcs.GetSolutionPath(self.start_vertex, self.end_vertex, self.prog_result, tolerance=0.45)
+        edge_path = self.gcs.GetSolutionPath(self.start_vertex, self.end_vertex, self.prog_result, tolerance=0.75)
         print("Greedy DFS Path Found!")
         vertex_path = [e.u() for e in edge_path]
         vertex_path.append(edge_path[-1].v())

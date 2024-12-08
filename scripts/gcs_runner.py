@@ -34,6 +34,7 @@ point_in_set = lambda pose, node: special_in_hull(np.array([np.hstack((pose[4:],
 """
 
 total_pts = []
+total_static_pts = []
 
 
 # Load up primitive and tabletop sets
@@ -54,11 +55,11 @@ dynamic_dict = {}
 static_dict = {}
 for contact_mode_name in free_space_sets.keys():
     
-    #if contact_mode_name not in ['Y_NEG', 'X_POS']:
-    #    continue
+    if contact_mode_name not in ['Y_POS', 'X_POS']:
+        continue
     
     dynamic_dict[contact_mode_name] = []
-    for node in free_space_sets[contact_mode_name].nodes: # [-NUM_SETS:]:
+    for node in free_space_sets[contact_mode_name].nodes[-7:]: # [-NUM_SETS:]:
         convex_hull = node.set
         total_pts.append(convex_hull.points)
         convex_set = HPolyhedron(
@@ -83,9 +84,10 @@ for contact_mode_name in free_space_sets.keys():
 
 
     static_dict[contact_mode_name] = []
-    for node in static_sets[contact_mode_name].nodes: #[-NUM_SETS:]:
+    for node in static_sets[contact_mode_name].nodes[-7:]: #[-NUM_SETS:]:
         convex_hull = node.set
         total_pts.append(convex_hull.points)
+        total_static_pts.append(convex_hull.points)
         convex_set = HPolyhedron(
             VPolytope(
                 np.hstack((convex_hull.points[convex_hull.vertices][:,3:],
@@ -106,7 +108,7 @@ for contact_mode_name in free_space_sets.keys():
         """
 
 
-    for node in goal_conditioned_sets[contact_mode_name].nodes: #[-NUM_SETS:]:
+    for node in goal_conditioned_sets[contact_mode_name].nodes[-7:]: #[-NUM_SETS:]:
         convex_hull = node.set
         total_pts.append(convex_hull.points)
         convex_set = HPolyhedron(
@@ -130,14 +132,24 @@ for contact_mode_name in free_space_sets.keys():
 
 
 total_pts = np.concatenate(total_pts)
+total_static_pts = np.concatenate(total_static_pts)
 print("Total points", total_pts.shape)
+print("Total static points", total_static_pts.shape)
 total_pts = np.hstack([total_pts[:, 3:], total_pts[:, :3]])
-print("Total points", total_pts.shape)
+total_static_pts = np.hstack([total_static_pts[:, 3:], total_static_pts[:, :3]])
 tree = KDTree(total_pts)
+tree_static = KDTree(total_static_pts)
+
+
 desired_start = np.array([[1, 0, 0, 0, 0.0, 0.0, 0.15]])
-desired_goal = np.array([[1, 0, 0, 0, 0.0, 0.0, 0.4]])
-dist, ind = tree.query(desired_start, k=1)
-test_start_pose = total_pts[ind]
+desired_goal = np.array([[0, 0, 1, 0, 0.0, 0.2, 0.6]])
+
+# start at xpos dynamic 5 or 6. 
+# end at ypos dynamic 5
+
+
+dist, ind = tree_static.query(desired_start, k=1)
+test_start_pose = total_static_pts[ind]
 print("Start pose:", test_start_pose)
 print("Distance to desired start:", dist)
 dist, ind = tree.query(desired_goal, k=1)
@@ -146,21 +158,13 @@ print("End pose:", test_end_pose)
 print("Distance to desired end:", dist)
 
 
+# start at a dynamic set. and end at another dynamic set. 
+# start_pose = test_start_pose.reshape(-1, 1)
+# end_pose = test_end_pose.reshape(-1, 1)
 
-t = time.time()
 
-
-
-# gcs_tropt_planner = GCSTrajOptPlanner(dynamic_dict, static_dict, D=7, order=1, continuity_order=0)
-gcs_planner = GCSPlanner(dynamic_dict, static_dict)
-
-print("GCS Planner created! Time taken:", time.time() - t)
-
-# Now we can plan a trajectory between the two modes
-#start_pose = static_dict['Y_NEG'][3].UniformSample(RandomGenerator())
-# end_pose = dynamic_dict['X_POS'][0].UniformSample(RandomGenerator())
-start_pose = test_start_pose[0][0]
-end_pose = test_end_pose[0][0]
+start_pose = dynamic_dict['X_POS'][4].UniformSample(RandomGenerator())
+end_pose = dynamic_dict['Y_POS'][4].UniformSample(RandomGenerator())
 
 start_pt = Point(start_pose)
 end_pt = Point(end_pose)
@@ -169,16 +173,27 @@ end_pt = Point(end_pose)
 for mode_name, sets in static_dict.items():
     for i, set in enumerate(sets):
         if set.IntersectsWith(start_pt):
-            print(f"Start pose in static set: {mode_name}")
+            print(f"Start pose in static set {i}: {mode_name}")
         if set.IntersectsWith(end_pt):
-            print(f"End pose in static set: {mode_name}")
+            print(f"End pose in static set {i}: {mode_name}")
 for mode_name, sets in dynamic_dict.items():
     for i, set in enumerate(sets):
         if set.IntersectsWith(start_pt):
-            print(f"Start pose in static set: {mode_name}")
+            print(f"Start pose in dynamic set {i}: {mode_name}")
         if set.IntersectsWith(end_pt):
-            print(f"End pose in static set: {mode_name}")
+            print(f"End pose in dynamic set {i}: {mode_name}")
 
+
+
+t = time.time()
+# gcs_tropt_planner = GCSTrajOptPlanner(dynamic_dict, static_dict, D=7, order=1, continuity_order=0)
+gcs_planner = GCSPlanner(dynamic_dict, static_dict)
+
+print("GCS Planner created! Time taken:", time.time() - t)
+
+# Now we can plan a trajectory between the two modes
+#start_pose = static_dict['Y_NEG'][3].UniformSample(RandomGenerator())
+# end_pose = dynamic_dict['X_POS'][0].UniformSample(RandomGenerator())
 
 # only ones we need here are yneg and xpos!!!! run with just these two!
 
