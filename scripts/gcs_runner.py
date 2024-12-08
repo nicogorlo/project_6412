@@ -59,7 +59,7 @@ for contact_mode_name in free_space_sets.keys():
         continue
     
     dynamic_dict[contact_mode_name] = []
-    for node in free_space_sets[contact_mode_name].nodes[-7:]: # [-NUM_SETS:]:
+    for node in free_space_sets[contact_mode_name].nodes[:7]: # [-NUM_SETS:]:
         convex_hull = node.set
         total_pts.append(convex_hull.points)
         convex_set = HPolyhedron(
@@ -84,7 +84,7 @@ for contact_mode_name in free_space_sets.keys():
 
 
     static_dict[contact_mode_name] = []
-    for node in static_sets[contact_mode_name].nodes[-7:]: #[-NUM_SETS:]:
+    for node in static_sets[contact_mode_name].nodes[:7]: #[-NUM_SETS:]:
         convex_hull = node.set
         total_pts.append(convex_hull.points)
         total_static_pts.append(convex_hull.points)
@@ -108,7 +108,7 @@ for contact_mode_name in free_space_sets.keys():
         """
 
 
-    for node in goal_conditioned_sets[contact_mode_name].nodes[-7:]: #[-NUM_SETS:]:
+    for node in goal_conditioned_sets[contact_mode_name].nodes[:7]: #[-NUM_SETS:]:
         convex_hull = node.set
         total_pts.append(convex_hull.points)
         convex_set = HPolyhedron(
